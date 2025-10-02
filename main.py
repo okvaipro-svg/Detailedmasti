@@ -573,9 +573,11 @@ Share to earn credits!""",
         if not is_sudo(uid):
             await query.edit_message_text("Unauthorized", reply_markup=InlineKeyboardMarkup(back_and_support()))
             return
-        await query.edit_message_text(f"Total users: {total_users()}
-Total credits: {total_credits()}", reply_markup=admin_panel_kb(True))
-        return
+        await query.edit_message_text(
+    f"""Total users: {total_users()}
+Total credits: {total_credits()}""",
+    reply_markup=admin_panel_kb(True)
+        )
 
     if data == "admin_gcast":
         if not is_sudo(uid):
