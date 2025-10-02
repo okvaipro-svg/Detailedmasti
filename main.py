@@ -608,6 +608,7 @@ Total credits: {total_credits()}""",
         return
 
     if data == "admin_protected":
+    if data == "admin_protected":
     if uid != OWNER_ID:
         await query.edit_message_text("Only owner can view protected numbers.", reply_markup=admin_panel_kb(is_sudo(uid)))
         return
