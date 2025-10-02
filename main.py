@@ -144,14 +144,14 @@ async def check_join(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool
     user_id = update.effective_user.id
     if not has_joined_must_channel(context, user_id):
         await update.message.reply_text(
-            f"Bot use karne ke liye aapko must join karna hoga channels:
+    f"Must Join Channels To Use this bot:
 "
-            + "
+    + "
 ".join([f"@{ch}" for ch in MUST_JOIN_CHANNELS])
-            + f"
+    + f"
 
-Join karne ke baad phir se try karein."
-        )
+Try Again After Joining Channels."
+)
         return False
     return True
 
