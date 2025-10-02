@@ -470,32 +470,20 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "menu_help":
-        help_txt = (
-            "ℹ️ *DataTrace OSINT Bot - Help*
+        help_text = """ℹ️ *DataTrace OSINT Bot - Help*
+• Send phone numbers, UPI, Aadhaar, IP, or Telegram usernames directly in DM.
+• Use commands in groups to search:
+   /num <number> - Number lookup
+   /upi <vpa> - UPI lookup
+   /aadhar <id> - Aadhaar info
+   /ip <ip> - IP lookup
+   /tg <username> - Telegram user stats
+   /pak <number> - Pakistan CNIC lookup
+• Use /credits to check credits.
+• Referral system rewards you credits.
 
-"
-            "• Send phone numbers, UPI, Aadhaar, IP, or Telegram usernames directly in DM.
-"
-            "• Use commands in groups to search:
-"
-            "   /num <number> - Number lookup
-"
-            "   /upi <vpa> - UPI lookup
-"
-            "   /aadhar <id> - Aadhaar info
-"
-            "   /ip <ip> - IP lookup
-"
-            "   /tg <username> - Telegram user stats
-"
-            "   /pak <number> - Pakistan CNIC lookup
-"
-            "• Use /credits to check credits.
-"
-            "• Referral system rewards you credits.
-
-"
-            "For support, contact admin."
+For support, contact admin.
+""""
         )
         await query.edit_message_text(help_txt, reply_markup=InlineKeyboardMarkup(back_and_support()), parse_mode=ParseMode.MARKDOWN)
         return
