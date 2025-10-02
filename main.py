@@ -738,18 +738,20 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_sudo(uid):
         await update.message.reply_text("Unauthorized.", reply_markup=InlineKeyboardMarkup(back_and_support()))
         return
-    await update.message.reply_text(f"Total users: {total_users()}
-Total credits: {total_credits()}", reply_markup=InlineKeyboardMarkup(back_and_support()))
-
+    await update.message.reply_text(
+        f"Total users: {total_users()}\nTotal credits: {total_credits()}",
+        reply_markup=InlineKeyboardMarkup(back_and_support())
+    )
 
 async def sudo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     if not is_sudo(uid):
         await update.message.reply_text("Unauthorized.")
         return
-    await update.message.reply_text("Sudo IDs:
-" + "
-".join(str(s) for s in SUDO_IDS), reply_markup=InlineKeyboardMarkup(back_and_support()))
+    await update.message.reply_text(
+        "Sudo IDs:\n" + "\n".join(str(s) for s in SUDO_IDS),
+        reply_markup=InlineKeyboardMarkup(back_and_support())
+    )
 
 
 async def addcredits_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
