@@ -832,32 +832,44 @@ async def gcast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def callhistory_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     try:
-        num = context.args[0]
-    except Exception:
+        num = normalize(context.args[0])
+    except (IndexError, AttributeError):
         await update.message.reply_text("Usage: /callhistory <number>", reply_markup=InlineKeyboardMarkup(back_and_support()))
         return
+
     if is_blacklisted(num):
         await update.message.reply_text("This number is blacklisted.", reply_markup=InlineKeyboardMarkup(back_and_support()))
         return
+
+    # Only deduct credits if API result is successful
+    user = get_user(uid)
     if not is_sudo(uid):
-        u = get_user(uid)
-        if not u or u[1] < CALL_HISTORY_COST:
-            await update.message.reply_text(f"Insufficient credits. Call History costs {CALL_HISTORY_COST} credits.", reply_markup=InlineKeyboardMarkup(back_and_support()))
+        if not user or user[1] < CALL_HISTORY_COST:
+            await update.message.reply_text(
+                f"Insufficient credits. Call History costs {CALL_HISTORY_COST} credits.",
+                reply_markup=InlineKeyboardMarkup(back_and_support())
+            )
             return
-        modify_credits(uid, -CALL_HISTORY_COST)
+
     api = API_CALL_HISTORY.format(num=num)
     data = fetch_api(api)
     if not data:
-        await update.message.reply_text("API error or no data found.", reply_markup=InlineKeyboardMarkup(back_and_support()))
+        await update.message.reply_text(
+            "API error or no data found. Please try again later.",
+            reply_markup=InlineKeyboardMarkup(back_and_support())
+        )
         return
-    pretty = "📝 Call History Result:
 
-" + json.dumps(data, indent=2)
+    # Only deduct credits after successful API response
+    if not is_sudo(uid):
+        modify_credits(uid, -CALL_HISTORY_COST)
+
+    pretty = "📝 Call History Result:\n\n" + json.dumps(data, indent=2)
     await update.message.reply_text(pretty, reply_markup=InlineKeyboardMarkup(back_and_support()))
     try:
         context.bot.send_message(LOG_SEARCH_GROUP, f"{uid} requested callhistory for {num}")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to log callhistory search: {e}")
 
 
 # API command wrappers
