@@ -482,8 +482,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • Use /credits to check credits.
 • Referral system rewards you credits.
 
-For support, contact admin.
-""""
+For support, contact admin.""""
         )
         await query.edit_message_text(help_txt, reply_markup=InlineKeyboardMarkup(back_and_support()), parse_mode=ParseMode.MARKDOWN)
         return
