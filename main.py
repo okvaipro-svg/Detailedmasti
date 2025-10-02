@@ -561,8 +561,6 @@ Contact admin {GSUPPORT} after payment. Admin will add credits and commission to
 Share to earn credits!""",
     reply_markup=kb
         )
-
-Share to earn credits!", reply_markup=kb)
         return
 
     # Admin panel
