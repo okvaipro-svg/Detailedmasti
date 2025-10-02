@@ -1020,22 +1020,26 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Phone detection: +92 or +91 or plain 10 digits
+        # Phone detection: +92 or +91 or plain 10 digits
     if s.startswith("+92") or (s.startswith("92") and len(s) >= 11):
-    data = fetch_api(API_PAK.format(num=s))
-    await msg.reply_text("🇵🇰 Pakistan Number Search Result\n" + (fmt_pak(data if data else {})), reply_markup=InlineKeyboardMarkup(back_and_support()))
-    try:
-        context.bot.send_message(LOG_SEARCH_GROUP, f"Search: {uid} PAK {s}")
-    except Exception:
-        pass
-    return
-if s.startswith("+91") or (s.isdigit() and len(s) in (10,11)):
-    data = fetch_api(API_NUM_INFO.format(term=s))
-    await msg.reply_text("📱 Number Search Result\n" + (fmt_num(data if data else {})), reply_markup=InlineKeyboardMarkup(back_and_support()))
-    try:
-        context.bot.send_message(LOG_SEARCH_GROUP, f"Search: {uid} IN {s}")
-    except Exception:
-        pass
-    return
+        data = fetch_api(API_PAK.format(num=s))
+        await msg.reply_text("🇵🇰 Pakistan Number Search Result\n" + (fmt_pak(data if data else {})), reply_markup=InlineKeyboardMarkup(back_and_support()))
+        try:
+            context.bot.send_message(LOG_SEARCH_GROUP, f"Search: {uid} PAK {s}")
+        except Exception:
+            pass
+        return
+    if s.startswith("+91") or (s.isdigit() and len(s) in (10,11)):
+        data = fetch_api(API_NUM_INFO.format(term=s))
+        await msg.reply_text("📱 Number Search Result\n" + (fmt_num(data if data else {})), reply_markup=InlineKeyboardMarkup(back_and_support()))
+        try:
+            context.bot.send_message(LOG_SEARCH_GROUP, f"Search: {uid} IN {s}")
+        except Exception:
+            pass
+        return
+
+    # If none matched
+    await msg.reply_text("Invalid/unknown input. Use /help or menu.", reply_markup=InlineKeyboardMarkup(back_and_support()))
 
 # If none matched
 await msg.reply_text("Invalid/unknown input. Use /help or menu.", reply_markup=InlineKeyboardMarkup(back_and_support()))
