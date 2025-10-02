@@ -1040,9 +1040,6 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # If none matched
     await msg.reply_text("Invalid/unknown input. Use /help or menu.", reply_markup=InlineKeyboardMarkup(back_and_support()))
-
-# If none matched
-await msg.reply_text("Invalid/unknown input. Use /help or menu.", reply_markup=InlineKeyboardMarkup(back_and_support()))
     
 
 # Unknown commands
