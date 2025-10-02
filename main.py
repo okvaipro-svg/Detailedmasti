@@ -525,25 +525,25 @@ For support, contact admin.
         await query.edit_message_text("Telegram user stats — use /tg <username_or_id>.", reply_markup=InlineKeyboardMarkup(back_and_support("main_menu")))
         return
 
-    # Buy credits
+        # Buy credits
     if data == "menu_buycredits":
         await query.edit_message_text("Choose a package (contact admin to pay):", reply_markup=buycredits_kb())
         return
 
     if data and data.startswith("buy_pkg|"):
-    parts = data.split("|", 1)
-    try:
-        amt = int(parts[1])
-    except:
-        amt = None
-    if amt and amt in CREDIT_PACKAGES:
-        price = CREDIT_PACKAGES[amt]
-        await query.edit_message_text(
-            f"""Package: {amt} credits → ₹{price}
+        parts = data.split("|", 1)
+        try:
+            amt = int(parts[1])
+        except:
+            amt = None
+        if amt and amt in CREDIT_PACKAGES:
+            price = CREDIT_PACKAGES[amt]
+            await query.edit_message_text(
+                f"""Package: {amt} credits → ₹{price}
 Contact admin {GSUPPORT} after payment. Admin will add credits and commission to referrer.""",
-            reply_markup=InlineKeyboardMarkup(back_and_support("main_menu"))
-        )
-        return
+                reply_markup=InlineKeyboardMarkup(back_and_support("main_menu"))
+            )
+            return
 
     # Referral
     if data == "menu_referral":
