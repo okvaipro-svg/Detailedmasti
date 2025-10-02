@@ -618,8 +618,6 @@ Total credits: {total_credits()}""",
         txt = "Protected numbers:
 " + "
 ".join([f"{r[0]} — {r[1]}" for r in rows])
-        await query.edit_message_text(txt, reply_markup=admin_panel_kb(True))
-        return
 
     # buy_callhistory via button - instruct user to run /callhistory
     if data == "buy_callhistory":
