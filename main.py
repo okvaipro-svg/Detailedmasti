@@ -297,8 +297,7 @@ def fmt_ip(d) -> str:
         "━━━━━━━━━━━━━━━",
         f"📢 {MUST_JOIN_CHANNELS_AT[0]} | Support: {GSUPPORT}",
     ]
-    return "
-".join(lines)
+    return "".join(lines)
 
 
 def fmt_num(d) -> str:
@@ -323,8 +322,7 @@ def fmt_num(d) -> str:
         "━━━━━━━━━━━━━━━",
         f"📢 {MUST_JOIN_CHANNELS_AT[0]} | Support: {GSUPPORT}",
     ]
-    return "
-".join(lines)
+    return "".join(lines)
 
 
 def fmt_pak(d) -> str:
@@ -340,8 +338,7 @@ def fmt_pak(d) -> str:
             "-----",
         ]
     lines += ["━━━━━━━━━━━━━━━", f"📢 {MUST_JOIN_CHANNELS_AT[0]} | Support: {GSUPPORT}"]
-    return "
-".join(lines)
+    return "".join(lines)
 
 
 def fmt_aadhar_family(d) -> str:
@@ -359,8 +356,7 @@ def fmt_aadhar_family(d) -> str:
     for idx, m in enumerate(d.get("memberDetailsList", []) or [], 1):
         lines.append(f"{idx}. {m.get('memberName','N/A')} ({m.get('releationship_name','N/A')})")
     lines += ["━━━━━━━━━━━━━━━", f"📢 {MUST_JOIN_CHANNELS_AT[0]} | Support: {GSUPPORT}"]
-    return "
-".join(lines)
+    return "".join(lines)
 
 
 def fmt_tg_user(d) -> str:
@@ -385,8 +381,7 @@ def fmt_tg_user(d) -> str:
         "━━━━━━━━━━━━━━━",
         f"📢 {MUST_JOIN_CHANNELS_AT[0]} | Support: {GSUPPORT}",
     ]
-    return "
-".join(lines)
+    return "".join(lines)
 
 
 # -------------------------
