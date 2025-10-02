@@ -39,7 +39,7 @@ from telegram.ext import (
 # -------------------------
 # CONFIG - Edit if needed
 # -------------------------
-TOKEN = "8219144171:AAEKPgaq7P9-KSvq92YRm8xwJq7H9sxh42s"
+TOKEN = "8219144171:AAF8_6dxvS0skpljooJey2E-TfZhfMYKgjE"
 BOT_USERNAME = "@UserDeepLookupBot"
 
 OWNER_ID = 7924074157
@@ -604,4 +604,497 @@ Total credits: {total_credits()}", reply_markup=admin_panel_kb(True))
 
     if data == "admin_ban":
         if not is_sudo(uid):
-    
+            await query.edit_message_text("Unauthorized", reply_markup=InlineKeyboardMarkup(back_and_support()))
+            return
+        await query.edit_message_text("Usage: /ban <user_id>", reply_markup=admin_panel_kb(True))
+        return
+
+    if data == "admin_unban":
+        if not is_sudo(uid):
+            await query.edit_message_text("Unauthorized", reply_markup=InlineKeyboardMarkup(back_and_support()))
+            return
+        await query.edit_message_text("Usage: /unban <user_id>", reply_markup=admin_panel_kb(True))
+        return
+
+    if data == "admin_protected":
+        if uid != OWNER_ID:
+            await query.edit_message_text("Only owner can view protected numbers.", reply_markup=admin_panel_kb(is_sudo(uid)))
+            return
+        rows = list_protected()
+        if not rows:
+            await query.edit_message_text("No protected numbers stored.", reply_markup=admin_panel_kb(True))
+            return
+        txt = "Protected numbers:
+" + "
+".join([f"{r[0]} — {r[1]}" for r in rows])
+        await query.edit_message_text(txt, reply_markup=admin_panel_kb(True))
+        return
+
+    # buy_callhistory via button - instruct user to run /callhistory
+    if data == "buy_callhistory":
+        await query.edit_message_text(f"Call History costs {CALL_HISTORY_COST} credits. Use command:
+/callhistory <number>", reply_markup=InlineKeyboardMarkup(back_and_support("main_menu")))
+        return
+
+    # fallback - unknown
+    await query.edit_message_text("Option expired or unknown. Returning to main menu.", reply_markup=main_menu_kb())
+
+
+# -------------------------
+# Commands & message handling
+# -------------------------
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+
+    start_text = (
+        f"👋 **Welcome {user.first_name} to DataTrace OSINT Bot**
+
+"
+        "This bot helps you search and trace details from our private OSINT database.
+
+"
+        "⚡ **What you can do here:**
+"
+        " • Search phone numbers, UPI IDs, Aadhaar, IPs, Telegram IDs, CNIC (PK)
+"
+        " • Use quick auto-search in DM
+"
+        " • Get credit balance & referral rewards
+
+"
+        "🛠 **How to Use**
+"
+        " • In Private Chat → just send any number, email, UPI, Aadhaar, or IP
+"
+        " • In Groups → use commands like `/num 9876543210`
+
+"
+        "💡 *No credits are deducted if result = Not Found.*"
+    )
+    await update.message.reply_text(start_text, reply_markup=main_menu_kb(), parse_mode=ParseMode.MARKDOWN)
+
+    # log start
+    uid = user.id
+    text = update.message.text or ""
+    ref_id = None
+    if text.startswith("/start") and "ref_" in text:
+        try:
+            rid = int(text.split("ref_")[1])
+            if rid != uid:
+                ref_id = rid
+        except Exception:
+            ref_id = None
+
+    existed = get_user(uid)
+    if not existed:
+        create_user(uid, referrer_id=ref_id)
+        # give referrer 1 credit on join
+        if ref_id and get_user(ref_id):
+            modify_credits(ref_id, FREE_CREDIT_ON_JOIN)
+
+    # Check must-join channels
+    def check_joined(user_id: int):
+        for ch in MUST_JOIN_CHANNELS:
+            try:
+                mem = context.bot.get_chat_member(chat_id=f"@{ch}", user_id=user_id)
+                if mem.status in ("left", "kicked"):
+                    return False
+            except Exception:
+                return False
+        return True
+
+    joined = check_joined(uid)
+    if joined:
+        set_joined(uid, 1)
+    else:
+        set_joined(uid, 0)
+
+    # Optionally, you can send join channel buttons here if not joined, but per spec it's omitted now
+
+    try:
+        context.bot.send_message(LOG_START_GROUP, f"/start by {uid} joined={joined} ref={ref_id}")
+    except Exception:
+        pass
+
+
+async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    help_text = (
+        "ℹ️ *DataTrace OSINT Bot - Help*
+
+"
+        "• Send phone numbers, UPI, Aadhaar, IP, or Telegram usernames directly in DM.
+"
+        "• Use commands in groups to search:
+"
+        "   /num <number> - Number lookup
+"
+        "   /upi <vpa> - UPI lookup
+"
+        "   /aadhar <id> - Aadhaar info
+"
+        "   /ip <ip> - IP lookup
+"
+        "   /tg <username> - Telegram user stats
+"
+        "   /pak <number> - Pakistan CNIC lookup
+"
+        "• Use /credits to check credits.
+"
+        "• Referral system rewards you credits.
+
+"
+        "For support, contact admin."
+    )
+    await update.message.reply_text(help_text, reply_markup=InlineKeyboardMarkup(back_and_support()), parse_mode=ParseMode.MARKDOWN)
+
+
+async def credits_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    u = get_user(uid)
+    credits = u[1] if u else 0
+    await update.message.reply_text(f"Your credits: {credits}
+Earn by referrals or contact {GSUPPORT}.", reply_markup=InlineKeyboardMarkup(back_and_support()))
+
+
+async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not is_sudo(uid):
+        await update.message.reply_text("Unauthorized.", reply_markup=InlineKeyboardMarkup(back_and_support()))
+        return
+    await update.message.reply_text(f"Total users: {total_users()}
+Total credits: {total_credits()}", reply_markup=InlineKeyboardMarkup(back_and_support()))
+
+
+async def sudo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not is_sudo(uid):
+        await update.message.reply_text("Unauthorized.")
+        return
+    await update.message.reply_text("Sudo IDs:
+" + "
+".join(str(s) for s in SUDO_IDS), reply_markup=InlineKeyboardMarkup(back_and_support()))
+
+
+async def addcredits_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not is_sudo(uid):
+        await update.message.reply_text("Unauthorized.", reply_markup=InlineKeyboardMarkup(back_and_support()))
+        return
+    try:
+        parts = update.message.text.split()
+        target = int(parts[1]); amount = int(parts[2])
+    except Exception:
+        await update.message.reply_text("Usage: /addcredits <user_id> <amount>", reply_markup=InlineKeyboardMarkup(back_and_support()))
+        return
+    if not get_user(target):
+        await update.message.reply_text("User not found. They must /start first.", reply_markup=InlineKeyboardMarkup(back_and_support()))
+        return
+    modify_credits(target, amount)
+    # commission: if target has referrer, give them 30% of amount as credits
+    t = get_user(target)
+    ref = t[2]
+    if ref and get_user(ref):
+        commission = int(amount * REFERRAL_COMMISSION_RATIO)
+        if commission > 0:
+            modify_credits(ref, commission)
+    await update.message.reply_text(f"Added {amount} credits to {target}.", reply_markup=InlineKeyboardMarkup(back_and_support()))
+
+
+async def ban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not is_sudo(uid):
+        await update.message.reply_text("Unauthorized.", reply_markup=InlineKeyboardMarkup(back_and_support()))
+        return
+    try:
+        target = int(update.message.text.split()[1])
+    except Exception:
+        await update.message.reply_text("Usage: /ban <user_id>", reply_markup=InlineKeyboardMarkup(back_and_support()))
+        return
+    ban_user(target)
+    await update.message.reply_text(f"Banned {target}.", reply_markup=InlineKeyboardMarkup(back_and_support()))
+
+
+async def unban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not is_sudo(uid):
+        await update.message.reply_text("Unauthorized.", reply_markup=InlineKeyboardMarkup(back_and_support()))
+        return
+    try:
+        target = int(update.message.text.split()[1])
+    except Exception:
+        await update.message.reply_text("Usage: /unban <user_id>", reply_markup=InlineKeyboardMarkup(back_and_support()))
+        return
+    unban_user(target)
+    await update.message.reply_text(f"Unbanned {target}.", reply_markup=InlineKeyboardMarkup(back_and_support()))
+
+
+async def gcast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not is_sudo(uid):
+        await update.message.reply_text("Unauthorized.", reply_markup=InlineKeyboardMarkup(back_and_support()))
+        return
+    try:
+        msg = update.message.text.split(" ", 1)[1]
+    except Exception:
+        await update.message.reply_text("Usage: /gcast <message>", reply_markup=InlineKeyboardMarkup(back_and_support()))
+        return
+    c.execute("SELECT user_id FROM users")
+    rows = c.fetchall()
+    sent = 0
+    for r in rows:
+        try:
+            await context.bot.send_message(r[0], msg)
+            sent += 1
+        except Exception:
+            continue
+    await update.message.reply_text(f"Broadcast sent to {sent} users.", reply_markup=InlineKeyboardMarkup(back_and_support()))
+
+
+async def callhistory_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    try:
+        num = context.args[0]
+    except Exception:
+        await update.message.reply_text("Usage: /callhistory <number>", reply_markup=InlineKeyboardMarkup(back_and_support()))
+        return
+    if is_blacklisted(num):
+        await update.message.reply_text("This number is blacklisted.", reply_markup=InlineKeyboardMarkup(back_and_support()))
+        return
+    if not is_sudo(uid):
+        u = get_user(uid)
+        if not u or u[1] < CALL_HISTORY_COST:
+            await update.message.reply_text(f"Insufficient credits. Call History costs {CALL_HISTORY_COST} credits.", reply_markup=InlineKeyboardMarkup(back_and_support()))
+            return
+        modify_credits(uid, -CALL_HISTORY_COST)
+    api = API_CALL_HISTORY.format(num=num)
+    data = fetch_api(api)
+    if not data:
+        await update.message.reply_text("API error or no data found.", reply_markup=InlineKeyboardMarkup(back_and_support()))
+        return
+    pretty = "📝 Call History Result:
+
+" + json.dumps(data, indent=2)
+    await update.message.reply_text(pretty, reply_markup=InlineKeyboardMarkup(back_and_support()))
+    try:
+        context.bot.send_message(LOG_SEARCH_GROUP, f"{uid} requested callhistory for {num}")
+    except Exception:
+        pass
+
+
+# API command wrappers
+async def upi_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        vpa = context.args[0]
+    except Exception:
+        await update.message.reply_text("Usage: /upi <vpa>", reply_markup=InlineKeyboardMarkup(back_and_support()))
+        return
+    data = fetch_api(API_UPI.format(upi=vpa))
+    out = fmt_upi(data if data else {})
+    await update.message.reply_text(out, reply_markup=InlineKeyboardMarkup(back_and_support()))
+
+
+async def ip_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        ip = context.args[0]
+    except Exception:
+        await update.message.reply_text("Usage: /ip <ip>", reply_markup=InlineKeyboardMarkup(back_and_support()))
+        return
+    data = fetch_api(API_IP.format(ip=ip))
+    out = fmt_ip(data if data else {})
+    await update.message.reply_text(out, reply_markup=InlineKeyboardMarkup(back_and_support()))
+
+
+async def num_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        num = context.args[0]
+    except Exception:
+        await update.message.reply_text("Usage: /num <number>", reply_markup=InlineKeyboardMarkup(back_and_support()))
+        return
+    if is_blacklisted(num):
+        await update.message.reply_text("Blacklisted.", reply_markup=InlineKeyboardMarkup(back_and_support()))
+        return
+    data = fetch_api(API_NUM_INFO.format(term=num))
+    out = fmt_num(data if data else {})
+    await update.message.reply_text("📱 Number Search Result
+
+" + out, reply_markup=InlineKeyboardMarkup(back_and_support()))
+    try:
+        context.bot.send_message(LOG_SEARCH_GROUP, f"/num by {update.effective_user.id} -> {num}")
+    except Exception:
+        pass
+
+
+async def pak_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        num = context.args[0]
+    except Exception:
+        await update.message.reply_text("Usage: /pak <number>", reply_markup=InlineKeyboardMarkup(back_and_support()))
+        return
+    if is_blacklisted(num):
+        await update.message.reply_text("Blacklisted.", reply_markup=InlineKeyboardMarkup(back_and_support()))
+        return
+    data = fetch_api(API_PAK.format(num=num))
+    out = fmt_pak(data if data else {})
+    await update.message.reply_text(out, reply_markup=InlineKeyboardMarkup(back_and_support()))
+    try:
+        context.bot.send_message(LOG_SEARCH_GROUP, f"/pak by {update.effective_user.id} -> {num}")
+    except Exception:
+        pass
+
+
+async def aadhar_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        aid = context.args[0]
+    except Exception:
+        await update.message.reply_text("Usage: /aadhar <aadhaar>", reply_markup=InlineKeyboardMarkup(back_and_support()))
+        return
+    data = fetch_api(API_AADHAR_FAMILY.format(id=aid))
+    out = fmt_aadhar_family(data if data else {})
+    await update.message.reply_text(out, reply_markup=InlineKeyboardMarkup(back_and_support()))
+
+
+async def tg_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        user = context.args[0]
+    except Exception:
+        await update.message.reply_text("Usage: /tg <username_or_id>", reply_markup=InlineKeyboardMarkup(back_and_support()))
+        return
+    data = fetch_api(API_TG_USER.format(user=user))
+    out = fmt_tg_user(data if data else {})
+    await update.message.reply_text(out, reply_markup=InlineKeyboardMarkup(back_and_support()))
+
+
+# Generic text handler (DM or group) — smart routing
+async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
+    uid = update.effective_user.id
+    text = (msg.text or "").strip()
+
+    # banned?
+    u = get_user(uid)
+    if u and u[3] == 1:
+        await msg.reply_text("You are banned.", reply_markup=InlineKeyboardMarkup(back_and_support()))
+        return
+
+    # must-join check
+    def check_joined(user_id: int):
+        for ch in MUST_JOIN_CHANNELS:
+            try:
+                mem = context.bot.get_chat_member(chat_id=f"@{ch}", user_id=user_id)
+                if mem.status in ("left", "kicked"):
+                    return False
+            except Exception:
+                return False
+        return True
+    joined = check_joined(uid)
+    if not joined:
+        await msg.reply_text("You must join required channels first.", reply_markup=InlineKeyboardMarkup(back_and_support()))
+        return
+
+    # DM free searches logic
+    if msg.chat.type == "private" and not is_sudo(uid):
+        if not u:
+            create_user(uid)
+            u = get_user(uid)
+        if u[5] < FREE_SEARCHES_DM:
+            increment_free_searches(uid)
+        else:
+            if u[1] <= 0:
+                await msg.reply_text("Free searches exhausted. Refer or buy credits.", reply_markup=InlineKeyboardMarkup(back_and_support()))
+                return
+
+    # If looks like a number/UPI/AADHAR/IP -> attempt auto-detect
+    s = normalize(text)
+    # blacklist/protected check
+    if is_blacklisted(s):
+        await msg.reply_text("This number is blacklisted.", reply_markup=InlineKeyboardMarkup(back_and_support()))
+        return
+    if is_protected(s) and uid != OWNER_ID:
+        await msg.reply_text("This number is protected.", reply_markup=InlineKeyboardMarkup(back_and_support()))
+        return
+
+    # Detect UPI (contains '@')
+    if "@" in s and not s.startswith("+"):
+        data = fetch_api(API_UPI.format(upi=s))
+        await msg.reply_text(fmt_upi(data if data else {}), reply_markup=InlineKeyboardMarkup(back_and_support()))
+        return
+
+    # IP detection: if contains '.' and looks like ip
+    if "." in s and any(c.isdigit() for c in s):
+        data = fetch_api(API_IP.format(ip=s))
+        await msg.reply_text(fmt_ip(data if data else {}), reply_markup=InlineKeyboardMarkup(back_and_support()))
+        return
+
+    # Aadhaar/id detection: numeric and length ~12
+    if s.isdigit() and len(s) >= 12:
+        # try aadhaar family first
+        data = fetch_api(API_AADHAR_FAMILY.format(id=s))
+        out = fmt_aadhar_family(data if data else {})
+        await msg.reply_text(out, reply_markup=InlineKeyboardMarkup(back_and_support()))
+        return
+
+    # Phone detection: +92 or +91 or plain 10 digits
+    if s.startswith("+92") or (s.startswith("92") and len(s) >= 11):
+        data = fetch_api(API_PAK.format(num=s))
+        await msg.reply_text("🇵🇰 Pakistan Number Search Result
+
+" + (fmt_pak(data if data else {})), reply_markup=InlineKeyboardMarkup(back_and_support()))
+        try:
+            context.bot.send_message(LOG_SEARCH_GROUP, f"Search: {uid} PAK {s}")
+        except Exception:
+            pass
+        return
+    if s.startswith("+91") or (s.isdigit() and len(s) in (10,11)):
+        data = fetch_api(API_NUM_INFO.format(term=s))
+        await msg.reply_text("📱 Number Search Result
+
+" + (fmt_num(data if data else {})), reply_markup=InlineKeyboardMarkup(back_and_support()))
+        try:
+            context.bot.send_message(LOG_SEARCH_GROUP, f"Search: {uid} IN {s}")
+        except Exception:
+            pass
+        return
+
+    # If none matched
+    await msg.reply_text("Invalid/unknown input. Use /help or menu.", reply_markup=InlineKeyboardMarkup(back_and_support()))
+
+
+# Unknown commands
+async def unknown_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Unknown command. /help", reply_markup=InlineKeyboardMarkup(back_and_support()))
+
+
+# -------------------------
+# Run
+# -------------------------
+def main():
+    app = ApplicationBuilder().token(TOKEN).build()
+
+    # Commands
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(CommandHandler("credits", credits_cmd))
+    app.add_handler(CommandHandler("stats", stats_cmd))
+    app.add_handler(CommandHandler("sudo", sudo_cmd))
+    app.add_handler(CommandHandler("addcredits", addcredits_cmd))
+    app.add_handler(CommandHandler("ban", ban_cmd))
+    app.add_handler(CommandHandler("unban", unban_cmd))
+    app.add_handler(CommandHandler("gcast", gcast_cmd))
+    app.add_handler(CommandHandler("callhistory", callhistory_cmd))
+    app.add_handler(CommandHandler("upi", upi_cmd))
+    app.add_handler(CommandHandler("ip", ip_cmd))
+    app.add_handler(CommandHandler("num", num_cmd))
+    app.add_handler(CommandHandler("pak", pak_cmd))
+    app.add_handler(CommandHandler("aadhar", aadhar_cmd))
+    app.add_handler(CommandHandler("tg", tg_cmd))
+
+    # Callbacks & messages
+    app.add_handler(CallbackQueryHandler(callback_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
+    app.add_handler(MessageHandler(filters.COMMAND, unknown_cmd))
+
+    logger.info("Bot started")
+    app.run_polling(allowed_updates=["message", "callback_query"])
+
+if __name__ == "__main__":
+    main()
