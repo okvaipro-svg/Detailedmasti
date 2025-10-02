@@ -39,7 +39,7 @@ from telegram.ext import (
 # -------------------------
 # CONFIG - Edit if needed
 # -------------------------
-TOKEN = "8219144171:AAF8_6dxvS0skpljooJey2E-TfZhfMYKgjE"
+TOKEN = "8219144171:AAEKPgaq7P9-KSvq92YRm8xwJq7H9sxh42s"
 BOT_USERNAME = "@UserDeepLookupBot"
 
 OWNER_ID = 7924074157
