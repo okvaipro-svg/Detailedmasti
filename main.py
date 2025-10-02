@@ -540,9 +540,10 @@ For support, contact admin.
             price = CREDIT_PACKAGES[amt]
             await query.edit_message_text(
     f"Package: {amt} credits → ₹{price}
-Contact admin {GSUPPORT} after payment. Admin will add credits and commission to referrer.",
+"
+    f"Contact admin {GSUPPORT} after payment. Admin will add credits and commission to referrer.",
     reply_markup=InlineKeyboardMarkup(back_and_support("main_menu"))
-)
+            )
 
     # Referral
     if data == "menu_referral":
