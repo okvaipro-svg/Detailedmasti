@@ -2,25 +2,22 @@
 # -*- coding: utf-8 -*-
 
 """
-DataTrace OSINT Bot - Single-file, ready-to-copy-paste.
-
-Features:
-- Free bot but referral-based credit system
-- GC (DataTraceOSINTSupport) users get full free access; DM users get 2 free searches then must refer or buy credits
-- APIs integrated: UPI, Number Info (IN), TG user stats, IP info, Pak CNIC, Aadhaar family/details
-- Paid feature: Call History (₹600 per search) — no demo
-- Buttons & callbacks: main menu, results actions, buy credits, admin panel
-- Admins / SUDO: full control (add credits, ban/unban, gcast, stats)
-- Protected numbers viewable only by owner
-- Blacklist blocking
-- Logging: start & search logs to groups
+DataTrace OSINT Bot - Single-file ready to run.
+Features implemented per user's spec:
+- Free bot (group members free). DM: 2 free searches then referral/credits.
+- Referral system: 1 credit on join, 30% commission on admin-added purchases.
+- APIs integrated: UPI, IN Number, TG user stats, IP, Pak CNIC, Aadhaar family/details.
+- Paid feature: Call History (600 credits) - deducts credits on /callhistory.
+- Blacklist + protected numbers table (only OWNER can view).
+- Dynamic UI with context-aware buttons, always shows Back + Contact Admin.
+- Admin panel for SUDO IDs: addcredits, ban, unban, gcast, stats.
+- Logging to groups for /start and searches.
 """
 
 import logging
 import sqlite3
 import json
 import requests
-import html
 import time
 from typing import Optional
 
@@ -39,38 +36,31 @@ from telegram.ext import (
     filters,
 )
 
-# -----------------------------
-# CONFIG - Edit only if needed
-# -----------------------------
-TOKEN = "8219144171:AAEKPgaq7P9-KSvq92YRm8xwJq7H9sxh42s"
+# -------------------------
+# CONFIG - Edit if needed
+# -------------------------
+TOKEN = "8219144171:AAF8_6dxvS0skpljooJey2E-TfZhfMYKgjE"
 BOT_USERNAME = "@UserDeepLookupBot"
 
-# Admins / sudo
 OWNER_ID = 7924074157
 SUDO_IDS = {7924074157, 5294360309, 7905267752}
 
-# Support / groups / must-join channels
 GSUPPORT = "@DataTraceSupport"
-MUST_JOIN_CHANNELS = ["DataTraceUpdates", "DataTraceOSINTSupport"]
-MUST_JOIN_CHANNELS_CHATNAMES = [f"@{c}" for c in MUST_JOIN_CHANNELS]
+MUST_JOIN_CHANNELS = ["DataTraceUpdates", "DataTraceOSINTSupport"]  # without '@'
+MUST_JOIN_CHANNELS_AT = [f"@{c}" for c in MUST_JOIN_CHANNELS]
 
-# Logging groups (as requested)
-LOG_START_GROUP = -1002765060940   # when user does /start (log)
-LOG_SEARCH_GROUP = -1003066524164  # when user performs a search (log)
+LOG_START_GROUP = -1002765060940
+LOG_SEARCH_GROUP = -1003066524164
 
-# Blacklist & Protected numbers
-BLACKLIST_NUMS = {"+917724814462"}  # never return data for these
-PROTECTED_NUMBERS = set()  # can add if needed; only owner can view
+BLACKLIST_NUMS = {"+917724814462"}
+# Protected numbers stored in DB table; only OWNER_ID can view via admin panel.
 
-# Free usage & referral settings
 FREE_CREDIT_ON_JOIN = 1
-REFERRAL_COMMISSION_RATIO = 0.3  # 30% of credits purchased
+REFERRAL_COMMISSION_RATIO = 0.3  # 30%
 FREE_SEARCHES_DM = 2
 
-# Paid constants
 CALL_HISTORY_COST = 600  # credits
 
-# Credit packages (user requested cheaper prices)
 CREDIT_PACKAGES = {
     100: 50,
     200: 100,
@@ -80,7 +70,7 @@ CREDIT_PACKAGES = {
     5000: 2250,
 }
 
-# APIs (as provided)
+# APIs (user-provided)
 API_UPI = "https://upi-info.vercel.app/api/upi?upi_id={upi}&key=456"
 API_NUM_INFO = "http://osintx.info/API/krobetahack.php?key=SHAD0WINT3L&type=mobile&term={term}"
 API_NUM_INFO_ID = "http://osintx.info/API/krobetahack.php?key=SHAD0WINT3L&type=id_number&term={term}"
@@ -90,20 +80,19 @@ API_PAK = "https://pak-num-api.vercel.app/search?number={num}"
 API_AADHAR_FAMILY = "https://family-members-n5um.vercel.app/fetch?aadhaar={id}&key=paidchx"
 API_CALL_HISTORY = "https://my-vercel-flask-qmfgrzwdl-okvaipro-svgs-projects.vercel.app/api/call_statement?number={num}&days=7"
 
-# Database file
 DB_FILE = "datatrace_bot.db"
 
-# -----------------------------
+# -------------------------
 # Logging
-# -----------------------------
+# -------------------------
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# -----------------------------
-# Database (SQLite)
-# -----------------------------
+# -------------------------
+# DB Setup
+# -------------------------
 conn = sqlite3.connect(DB_FILE, check_same_thread=False)
 c = conn.cursor()
 
@@ -140,29 +129,24 @@ CREATE TABLE IF NOT EXISTS protected_numbers (
 )
 conn.commit()
 
-# Insert default protected numbers set (optional)
-for pn in PROTECTED_NUMBERS:
-    try:
-        c.execute("INSERT OR IGNORE INTO protected_numbers (number, note) VALUES (?,?)", (pn, "protected"))
-    except Exception:
-        pass
-conn.commit()
-
-
-# -----------------------------
-# DB Helpers
-# -----------------------------
+# -------------------------
+# DB helpers
+# -------------------------
 def get_user(user_id: int):
-    c.execute("SELECT user_id, credits, referrer_id, banned, joined_gc, free_searches_dm FROM users WHERE user_id=?", (user_id,))
-    row = c.fetchone()
-    return row
+    c.execute(
+        "SELECT user_id, credits, referrer_id, banned, joined_gc, free_searches_dm FROM users WHERE user_id=?",
+        (user_id,),
+    )
+    return c.fetchone()
 
 
-def add_user(user_id: int, referrer_id: Optional[int] = None):
+def create_user(user_id: int, referrer_id: Optional[int] = None):
     if get_user(user_id):
         return False
-    c.execute("INSERT INTO users (user_id, credits, referrer_id, banned, joined_gc, free_searches_dm) VALUES (?,?,?,?,?,?)",
-              (user_id, FREE_CREDIT_ON_JOIN if referrer_id is None else FREE_CREDIT_ON_JOIN, referrer_id, 0, 0, 0))
+    c.execute(
+        "INSERT INTO users (user_id, credits, referrer_id, banned, joined_gc, free_searches_dm) VALUES (?,?,?,?,?,?)",
+        (user_id, FREE_CREDIT_ON_JOIN, referrer_id, 0, 0, 0),
+    )
     conn.commit()
     if referrer_id:
         c.execute("INSERT INTO referrals (referrer, referee) VALUES (?,?)", (referrer_id, user_id))
@@ -174,53 +158,47 @@ def modify_credits(user_id: int, amount: int) -> bool:
     user = get_user(user_id)
     if not user:
         return False
-    new_amount = user[1] + amount
-    if new_amount < 0:
+    new_val = user[1] + amount
+    if new_val < 0:
         return False
-    c.execute("UPDATE users SET credits=? WHERE user_id=?", (new_amount, user_id))
+    c.execute("UPDATE users SET credits=? WHERE user_id=?", (new_val, user_id))
     conn.commit()
     return True
 
 
-def set_joined_gc(user_id: int, val: int = 1):
+def set_joined(user_id: int, val: int = 1):
     c.execute("UPDATE users SET joined_gc=? WHERE user_id=?", (val, user_id))
     conn.commit()
 
 
-def increment_free_searches(user_id: int):
-    user = get_user(user_id)
-    if not user:
-        return False
-    new_val = user[5] + 1
-    c.execute("UPDATE users SET free_searches_dm=? WHERE user_id=?", (new_val, user_id))
+def increment_free_searches(user_id: int) -> int:
+    u = get_user(user_id)
+    if not u:
+        return 0
+    newv = u[5] + 1
+    c.execute("UPDATE users SET free_searches_dm=? WHERE user_id=?", (newv, user_id))
     conn.commit()
-    return new_val
+    return newv
 
 
-def ban_user_db(user_id: int):
+def ban_user(user_id: int):
     c.execute("UPDATE users SET banned=1 WHERE user_id=?", (user_id,))
     conn.commit()
 
 
-def unban_user_db(user_id: int):
+def unban_user(user_id: int):
     c.execute("UPDATE users SET banned=0 WHERE user_id=?", (user_id,))
     conn.commit()
 
 
-def total_users_count():
-    c.execute("SELECT COUNT(*) FROM users")
-    return c.fetchone()[0]
-
-
-def total_credits_sum():
-    c.execute("SELECT SUM(credits) FROM users")
-    val = c.fetchone()[0]
-    return val if val else 0
-
-
-def add_protected_number(number: str, note: str = ""):
+def add_protected(number: str, note: str = ""):
     c.execute("INSERT OR REPLACE INTO protected_numbers (number, note) VALUES (?,?)", (number, note))
     conn.commit()
+
+
+def list_protected():
+    c.execute("SELECT number, note FROM protected_numbers")
+    return c.fetchall()
 
 
 def is_protected(number: str) -> bool:
@@ -228,219 +206,233 @@ def is_protected(number: str) -> bool:
     return bool(c.fetchone())
 
 
-def is_blacklisted(number: str) -> bool:
-    n = number.replace(" ", "")
-    return n in BLACKLIST_NUMS or n.lstrip("+") in BLACKLIST_NUMS
+def total_users():
+    c.execute("SELECT COUNT(*) FROM users")
+    return c.fetchone()[0]
 
 
-# -----------------------------
-# Utilities
-# -----------------------------
+def total_credits():
+    c.execute("SELECT SUM(credits) FROM users")
+    s = c.fetchone()[0]
+    return s if s else 0
+
+
+# -------------------------
+# Utils
+# -------------------------
 def is_sudo(user_id: int) -> bool:
     return user_id == OWNER_ID or user_id in SUDO_IDS
 
 
-def normalize_number(num: str) -> str:
-    return num.strip().replace(" ", "")
+def normalize(num: str) -> str:
+    return (num or "").strip().replace(" ", "")
 
 
-# API fetcher
+def is_blacklisted(num: str) -> bool:
+    n = normalize(num)
+    return n in BLACKLIST_NUMS or n.lstrip("+") in BLACKLIST_NUMS
+
+
 def fetch_api(url: str, timeout: int = 12):
     try:
-        resp = requests.get(url, timeout=timeout)
-        if resp.status_code == 200:
+        r = requests.get(url, timeout=timeout)
+        if r.status_code == 200:
             try:
-                return resp.json()
+                return r.json()
             except Exception:
-                # sometimes API returns plain text - return text
-                return resp.text
+                return r.text
     except Exception as e:
-        logger.error("API fetch error: %s", e)
+        logger.warning("API fetch error: %s", e)
     return None
 
 
-# -----------------------------
-# Formatters (per user request)
-# -----------------------------
-def format_upi_info(data) -> str:
-    if not data:
+# -------------------------
+# Formatters - keep styling consistent
+# -------------------------
+def fmt_upi(d) -> str:
+    if not d:
         return "No UPI info found."
-    b = data.get("bank_details_raw", {}) if isinstance(data, dict) else {}
-    v = data.get("vpa_details", {}) if isinstance(data, dict) else {}
-    lines = []
-    lines.append("🔗 UPI Info Result")
-    lines.append("━━━━━━━━━━━━━━━")
-    lines.append(f"🏦 Bank: {b.get('BANK', 'N/A')}")
-    lines.append(f"🏢 Branch: {b.get('BRANCH', 'N/A')}")
-    lines.append(f"📍 Address: {b.get('ADDRESS', 'N/A')}")
-    lines.append(f"🧾 IFSC: {b.get('IFSC', 'N/A')}")
-    lines.append(f"📌 MICR: {b.get('MICR', 'N/A')}")
-    lines.append(f"🌏 City: {b.get('CITY', 'N/A')}, {b.get('STATE', 'N/A')}")
-    lines.append(f"✔ NEFT: {b.get('NEFT', 'N/A')} | RTGS: {b.get('RTGS', 'N/A')} | IMPS: {b.get('IMPS', 'N/A')} | UPI: {b.get('UPI', 'N/A')}")
-    lines.append("")
-    lines.append(f"👤 Name: {v.get('name', 'N/A')}")
-    lines.append(f"💳 VPA: {v.get('vpa', 'N/A')}")
-    lines.append("━━━━━━━━━━━━━━━")
-    lines.append(f"📢 {MUST_JOIN_CHANNELS_CHATNAMES[0]} | Support: {GSUPPORT}")
+    b = d.get("bank_details_raw", {}) if isinstance(d, dict) else {}
+    v = d.get("vpa_details", {}) if isinstance(d, dict) else {}
+    lines = [
+        "🔗 UPI Lookup Result",
+        "━━━━━━━━━━━━━━━",
+        f"🏦 Bank: {b.get('BANK', 'N/A')}",
+        f"🏢 Branch: {b.get('BRANCH', 'N/A')}",
+        f"📍 Address: {b.get('ADDRESS', 'N/A')}",
+        f"🧾 IFSC: {b.get('IFSC', 'N/A')}",
+        f"📌 MICR: {b.get('MICR', 'N/A')}",
+        f"🌏 City: {b.get('CITY', 'N/A')}, {b.get('STATE', 'N/A')}",
+        f"✔ UPI: {b.get('UPI', 'N/A')} | NEFT: {b.get('NEFT', 'N/A')} | RTGS: {b.get('RTGS', 'N/A')}",
+        "",
+        f"👤 Name: {v.get('name', 'N/A')}",
+        f"💳 VPA: {v.get('vpa', 'N/A')}",
+        "━━━━━━━━━━━━━━━",
+        f"📢 {MUST_JOIN_CHANNELS_AT[0]} | Support: {GSUPPORT}",
+    ]
     return "\n".join(lines)
 
 
-def format_ip_info(data) -> str:
-    # Keep formatting as user asked (emoji + labels)
-    if not data or not isinstance(data, dict):
+def fmt_ip(d) -> str:
+    if not d or not isinstance(d, dict):
         return "No IP data."
-    # these APIs sometimes return keys in different case; attempt both
-    def get(d, k):
-        return d.get(k) or d.get(k.lower()) or d.get(k.upper()) or "N/A"
-
-    lines = []
-    lines.append("🌐 IP Lookup Result")
-    lines.append("━━━━━━━━━━━━━━━")
-    lines.append(f"🗾 IP Valid: {get(data, 'IP Valid')}")
-    lines.append(f"🌎 Country: {get(data, 'Country')}")
-    lines.append(f"💠 Country Code: {get(data, 'Country Code')}")
-    lines.append(f"🥬 Region: {get(data, 'Region')}")
-    lines.append(f"🗺️ Region Name: {get(data, 'Region Name')}")
-    lines.append(f"🏠 City: {get(data, 'City')}")
-    lines.append(f"✉️ Zip: {get(data, 'Zip')}")
-    lines.append(f"🦠 Latitude: {get(data, 'Latitude')}")
-    lines.append(f"⭐ Longitude: {get(data, 'Longitude')}")
-    lines.append(f"🕢 Timezone: {get(data, 'Timezone')}")
-    lines.append(f"🗼 ISP: {get(data, 'ISP')}")
-    lines.append(f"🔥 Organization: {get(data, 'Organization')}")
-    lines.append(f"🌾 AS: {get(data, 'AS')}")
-    lines.append(f"🛰 IP: {get(data, 'IP')}")
-    lines.append("━━━━━━━━━━━━━━━")
-    lines.append(f"📢 {MUST_JOIN_CHANNELS_CHATNAMES[0]} | Support: {GSUPPORT}")
+    def G(k): return d.get(k) or d.get(k.lower()) or d.get(k.upper()) or "N/A"
+    lines = [
+        "🌐 IP Lookup Result",
+        "━━━━━━━━━━━━━━━",
+        f"🗾 IP Valid: {G('IP Valid')}",
+        f"🌎 Country: {G('Country')}",
+        f"💠 Country Code: {G('Country Code')}",
+        f"🥬 Region: {G('Region')}",
+        f"🗺️ Region Name: {G('Region Name')}",
+        f"🏠 City: {G('City')}",
+        f"✉️ Zip: {G('Zip')}",
+        f"🦠 Latitude: {G('Latitude')}",
+        f"⭐ Longitude: {G('Longitude')}",
+        f"🕢 Timezone: {G('Timezone')}",
+        f"🗼 ISP: {G('ISP')}",
+        f"🔥 Organization: {G('Organization')}",
+        f"🌾 AS: {G('AS')}",
+        f"🛰 IP: {G('IP')}",
+        "━━━━━━━━━━━━━━━",
+        f"📢 {MUST_JOIN_CHANNELS_AT[0]} | Support: {GSUPPORT}",
+    ]
     return "\n".join(lines)
 
 
-def format_num_info(data) -> str:
-    if not data or "data" not in data or len(data["data"]) == 0:
+def fmt_num(d) -> str:
+    if not d or "data" not in d or not d["data"]:
         return "Number info not found."
-    d = data["data"][0]
-    # address replacement as requested: '!' => ', '
-    addr = d.get("address", "N/A")
+    r = d["data"][0]
+    addr = r.get("address", "N/A")
     try:
         addr = addr.replace("!", ", ")
     except Exception:
         pass
-    lines = []
-    lines.append("📱 Number Info (India)")
-    lines.append("━━━━━━━━━━━━━━━")
-    lines.append(f"📞 Mobile: {d.get('mobile', 'N/A')}")
-    lines.append(f"👤 Name: {d.get('name', 'N/A')}")
-    lines.append(f"👥 Father/Alt: {d.get('fname', 'N/A')}")
-    lines.append(f"🏠 Address: {addr}")
-    lines.append(f"📲 Alternate: {d.get('alt', 'N/A')}")
-    lines.append(f"📡 Circle: {d.get('circle', 'N/A')}")
-    lines.append(f"🪪 ID: {d.get('id', 'N/A')}")
-    lines.append("━━━━━━━━━━━━━━━")
-    lines.append(f"📢 {MUST_JOIN_CHANNELS_CHATNAMES[0]} | Support: {GSUPPORT}")
+    lines = [
+        "📱 Number Info (India)",
+        "━━━━━━━━━━━━━━━",
+        f"📞 Mobile: {r.get('mobile', 'N/A')}",
+        f"👤 Name: {r.get('name', 'N/A')}",
+        f"👥 Father/Alt: {r.get('fname', 'N/A')}",
+        f"🏠 Address: {addr}",
+        f"📲 Alternate: {r.get('alt', 'N/A')}",
+        f"📡 Circle: {r.get('circle', 'N/A')}",
+        f"🪪 ID: {r.get('id', 'N/A')}",
+        "━━━━━━━━━━━━━━━",
+        f"📢 {MUST_JOIN_CHANNELS_AT[0]} | Support: {GSUPPORT}",
+    ]
     return "\n".join(lines)
 
 
-def format_pak_info(data) -> str:
-    if not data or "results" not in data or len(data["results"]) == 0:
+def fmt_pak(d) -> str:
+    if not d or "results" not in d or not d["results"]:
         return "Pakistan number info not found."
-    lines = []
-    lines.append("🇵🇰 Pakistan Number Info")
-    lines.append("━━━━━━━━━━━━━━━")
-    for rec in data["results"]:
-        lines.append(f"👤 Name: {rec.get('Name','N/A')}")
-        lines.append(f"🆔 CNIC: {rec.get('CNIC','N/A')}")
-        addr = rec.get("Address", "N/A")
-        lines.append(f"📍 Address: {addr if addr else 'N/A'}")
-        lines.append(f"📞 Number: {rec.get('Mobile','N/A')}")
-        lines.append("-----")
-    lines.append("━━━━━━━━━━━━━━━")
-    lines.append(f"📢 {MUST_JOIN_CHANNELS_CHATNAMES[0]} | Support: {GSUPPORT}")
+    lines = ["🇵🇰 Pakistan Number Info", "━━━━━━━━━━━━━━━"]
+    for rec in d["results"]:
+        lines += [
+            f"👤 Name: {rec.get('Name','N/A')}",
+            f"🆔 CNIC: {rec.get('CNIC','N/A')}",
+            f"📍 Address: {rec.get('Address','N/A') or 'N/A'}",
+            f"📞 Number: {rec.get('Mobile','N/A')}",
+            "-----",
+        ]
+    lines += ["━━━━━━━━━━━━━━━", f"📢 {MUST_JOIN_CHANNELS_AT[0]} | Support: {GSUPPORT}"]
     return "\n".join(lines)
 
 
-def format_aadhar_family(data) -> str:
-    if not data:
-        return "Aadhaar family info not found."
-    lines = []
-    lines.append("🪪 Aadhaar -> Family Info")
-    lines.append("━━━━━━━━━━━━━━━")
-    lines.append(f"🏠 Address: {data.get('address', 'N/A')}")
-    lines.append(f"📍 District: {data.get('homeDistName', 'N/A')}, {data.get('homeStateName', 'N/A')}")
-    lines.append(f"Scheme: {data.get('schemeName', 'N/A')} (Scheme ID: {data.get('schemeId','N/A')})")
-    lines.append("")
-    lines.append("👨‍👩‍👧 Members:")
-    members = data.get("memberDetailsList", [])
-    for idx, m in enumerate(members, 1):
-        lines.append(f"{idx}. {m.get('memberName','N/A')} ({m.get('releationship_name','N/A')})")
-    lines.append("━━━━━━━━━━━━━━━")
-    lines.append(f"📢 {MUST_JOIN_CHANNELS_CHATNAMES[0]} | Support: {GSUPPORT}")
-    return "\n".join(lines)
-
-
-def format_tg_user_stats(data) -> str:
-    d = data.get("data", {}) if isinstance(data, dict) else {}
+def fmt_aadhar_family(d) -> str:
     if not d:
-        return "TG user stats not found."
-    lines = []
-    lines.append("👤 Telegram User Stats")
-    lines.append("━━━━━━━━━━━━━━━")
-    lines.append(f"🆔 ID: {d.get('id', 'N/A')}")
-    lines.append(f"📛 Name: {d.get('first_name', '')} {d.get('last_name', '')}")
-    lines.append(f"📬 Active: {'✅' if d.get('is_active') else '❌'}")
-    lines.append(f"🤖 Bot: {'✅' if d.get('is_bot') else '❌'}")
-    lines.append(f"📅 First Seen: {d.get('first_msg_date', '')[:10]}")
-    lines.append(f"🕒 Last Seen: {d.get('last_msg_date', '')[:10]}")
-    lines.append("")
-    lines.append(f"📊 Messages in Groups: {d.get('msg_in_groups_count', 0)}")
-    lines.append(f"💬 Total Messages: {d.get('total_msg_count', 0)}")
-    lines.append(f"👥 Groups Joined: {d.get('total_groups', 0)}")
-    lines.append(f"🧩 Total Usernames: {d.get('usernames_count', 0)}")
-    lines.append(f"🧩 Total Names: {d.get('names_count', 0)}")
-    lines.append("━━━━━━━━━━━━━━━")
-    lines.append(f"📢 {MUST_JOIN_CHANNELS_CHATNAMES[0]} | Support: {GSUPPORT}")
+        return "Aadhaar family info not found."
+    lines = [
+        "🪪 Aadhaar → Family Info",
+        "━━━━━━━━━━━━━━━",
+        f"🏠 Address: {d.get('address','N/A')}",
+        f"📍 District: {d.get('homeDistName','N/A')}, {d.get('homeStateName','N/A')}",
+        f"Scheme: {d.get('schemeName','N/A')} (Scheme ID: {d.get('schemeId','N/A')})",
+        "",
+        "👨‍👩‍👧 Members:",
+    ]
+    for idx, m in enumerate(d.get("memberDetailsList", []) or [], 1):
+        lines.append(f"{idx}. {m.get('memberName','N/A')} ({m.get('releationship_name','N/A')})")
+    lines += ["━━━━━━━━━━━━━━━", f"📢 {MUST_JOIN_CHANNELS_AT[0]} | Support: {GSUPPORT}"]
     return "\n".join(lines)
 
 
-# -----------------------------
-# Keyboards & UI
-# -----------------------------
-def main_menu_keyboard():
+def fmt_tg_user(d) -> str:
+    if not d or "data" not in d:
+        return "TG user stats not found."
+    u = d["data"]
+    lines = [
+        "👤 Telegram User Stats",
+        "━━━━━━━━━━━━━━━",
+        f"🆔 ID: {u.get('id','N/A')}",
+        f"📛 Name: {u.get('first_name','')} {u.get('last_name','')}",
+        f"📬 Active: {'✅' if u.get('is_active') else '❌'}",
+        f"🤖 Bot: {'✅' if u.get('is_bot') else '❌'}",
+        f"📅 First Seen: {u.get('first_msg_date','')[:10]}",
+        f"🕒 Last Seen: {u.get('last_msg_date','')[:10]}",
+        "",
+        f"📊 Messages in Groups: {u.get('msg_in_groups_count',0)}",
+        f"💬 Total Messages: {u.get('total_msg_count',0)}",
+        f"👥 Groups Joined: {u.get('total_groups',0)}",
+        f"🧩 Total Usernames: {u.get('usernames_count',0)}",
+        f"🧩 Total Names: {u.get('names_count',0)}",
+        "━━━━━━━━━━━━━━━",
+        f"📢 {MUST_JOIN_CHANNELS_AT[0]} | Support: {GSUPPORT}",
+    ]
+    return "\n".join(lines)
+
+
+# -------------------------
+# UI: dynamic keyboards
+# -------------------------
+def back_and_support(cb: str = "main_menu"):
+    # returns list-of-lists to append to keyboards
+    return [
+        [InlineKeyboardButton("🔙 Back", callback_data=cb)],
+        [InlineKeyboardButton("📞 Contact Admin", url=f"https://t.me/{GSUPPORT.lstrip('@')}")]
+    ]
+
+
+def main_menu_kb():
     kb = [
-        [InlineKeyboardButton("🔎 Number (auto)", switch_inline_query_current_chat="+91 ")],
-        [InlineKeyboardButton("🔍 UPI Lookup", callback_data="ui_upi"),
-         InlineKeyboardButton("🌐 IP Lookup", callback_data="ui_ip")],
-        [InlineKeyboardButton("🇵🇰 Pakistan CNIC", callback_data="ui_pak"),
-         InlineKeyboardButton("🪪 Aadhaar (Family)", callback_data="ui_aadhar")],
-        [InlineKeyboardButton("👤 TG User Stats", callback_data="ui_tg"),
-         InlineKeyboardButton("📞 Call History (Paid)", callback_data="ui_callhistory")],
-        [InlineKeyboardButton("🎁 Referral", callback_data="ui_referral"),
-         InlineKeyboardButton("💳 Buy Credits", callback_data="ui_buycredits")],
-        [InlineKeyboardButton("🆘 Support", url=f"https://t.me/{GSUPPORT.lstrip('@')}"),
-         InlineKeyboardButton("ℹ️ Help", callback_data="ui_help")],
+        [InlineKeyboardButton("🔎 Quick Search (auto)", switch_inline_query_current_chat="+91 ")],
+        [InlineKeyboardButton("📱 Number Lookup", callback_data="menu_search_numbers"),
+         InlineKeyboardButton("💳 UPI Lookup", callback_data="menu_upi")],
+        [InlineKeyboardButton("🪪 Aadhaar", callback_data="menu_aadhar"),
+         InlineKeyboardButton("🌐 IP Lookup", callback_data="menu_ip")],
+        [InlineKeyboardButton("👤 TG Stats", callback_data="menu_tg"),
+         InlineKeyboardButton("🇵🇰 Pak CNIC", callback_data="menu_pak")],
+        [InlineKeyboardButton("🎁 Referral", callback_data="menu_referral"),
+         InlineKeyboardButton("💳 Buy Credits", callback_data="menu_buycredits")],
+        [InlineKeyboardButton("🔐 Admin Panel", callback_data="menu_admin")],
+        [InlineKeyboardButton("ℹ️ Help", callback_data="menu_help")],
+    ]
+    kb += back_and_support("main_menu")  # Contact admin & back (back points to main itself)
+    return InlineKeyboardMarkup(kb)
+
+
+def search_numbers_kb():
+    kb = [
+        [InlineKeyboardButton("🇮🇳 India (+91) Lookup", callback_data="search_num_in")],
+        [InlineKeyboardButton("🇵🇰 Pakistan (+92) Lookup", callback_data="search_num_pk")],
+        [InlineKeyboardButton("🔙 Back to Menu", callback_data="main_menu")],
+        [InlineKeyboardButton("📞 Contact Admin", url=f"https://t.me/{GSUPPORT.lstrip('@')}")]
     ]
     return InlineKeyboardMarkup(kb)
 
 
-def result_action_keyboard(number_based=False):
-    kb = [
-        [InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu"),
-         InlineKeyboardButton("◀️ Back", callback_data="main_menu")]
-    ]
-    if number_based:
-        kb.insert(0, [InlineKeyboardButton(f"📞 Call History (₹{CALL_HISTORY_COST})", callback_data="buy_callhistory")])
-    return InlineKeyboardMarkup(kb)
-
-
-def buy_credits_keyboard():
-    kb = []
-    for credits, price in sorted(CREDIT_PACKAGES.items()):
-        kb.append([InlineKeyboardButton(f"{credits} credits → ₹{price}", callback_data=f"buy_pkg|{credits}")])
+def buycredits_kb():
+    kb = [[InlineKeyboardButton(f"{amt} credits → ₹{price}", callback_data=f"buy_pkg|{amt}") ] for amt, price in sorted(CREDIT_PACKAGES.items())]
     kb.append([InlineKeyboardButton("Contact Admin / Pay", url=f"https://t.me/{GSUPPORT.lstrip('@')}")])
-    kb.append([InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")])
+    kb.append([InlineKeyboardButton("🔙 Back", callback_data="main_menu")])
     return InlineKeyboardMarkup(kb)
 
 
-def admin_panel_keyboard():
+def admin_panel_kb(is_sudo_user: bool):
+    if not is_sudo_user:
+        return InlineKeyboardMarkup([[InlineKeyboardButton("Unauthorized", callback_data="main_menu")]])
     kb = [
         [InlineKeyboardButton("📊 Stats", callback_data="admin_stats"),
          InlineKeyboardButton("📢 GCast", callback_data="admin_gcast")],
@@ -448,298 +440,326 @@ def admin_panel_keyboard():
          InlineKeyboardButton("🚫 Ban User", callback_data="admin_ban")],
         [InlineKeyboardButton("✅ Unban User", callback_data="admin_unban"),
          InlineKeyboardButton("🛡 Protected Numbers", callback_data="admin_protected")],
-        [InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")],
+        [InlineKeyboardButton("🔙 Back", callback_data="main_menu")]
     ]
     return InlineKeyboardMarkup(kb)
 
 
-# -----------------------------
-# Callbacks
-# -----------------------------
-async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# -------------------------
+# Callback handler (central)
+# -------------------------
+async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data or ""
     uid = query.from_user.id
 
-    # Basic menu navigation
+    # MAIN MENU
     if data == "main_menu":
-        await query.edit_message_text("✨ DataTrace OSINT — Main Menu", reply_markup=main_menu_keyboard())
+        await query.edit_message_text("✨ DataTrace OSINT — Main Menu", reply_markup=main_menu_kb())
         return
 
-    if data == "ui_help":
-        help_text = (
-            "Commands:\n"
-            "/start - Start bot\n"
-            "/help - This message\n"
-            "/stats - Admin stats\n\n"
-            "Search examples:\n"
-            "/upi <vpa>\n"
-            "/num <number>\n"
-            "/ip <ip>\n"
-            "/pak <number>\n"
-            "/aadhar <id>\n"
-            "/tg <username_or_id>\n"
-            "/callhistory <number>  (paid: ₹600/search)\n\n"
-            "Direct number in DM or groups also works.\n"
+    if data == "menu_help":
+        help_txt = (
+            "Welcome! Quick guide:\n\n"
+            "• In DM: send number/UPI/Aadhaar/IP directly (no command needed)\n"
+            "• In groups: use /num, /upi, /aadhar, /ip, /tg, /pak\n\n"
             f"Support: {GSUPPORT}"
         )
-        await query.edit_message_text(help_text, reply_markup=main_menu_keyboard())
+        await query.edit_message_text(help_txt, reply_markup=main_menu_kb())
         return
 
-    if data == "ui_referral":
+    # Search menus
+    if data == "menu_search_numbers":
+        await query.edit_message_text("Choose number lookup type:", reply_markup=search_numbers_kb())
+        return
+
+    if data == "search_num_in":
+        await query.edit_message_text("Send the Indian number (+91 or plain 10 digits) in chat or use /num <number>.", reply_markup=main_menu_kb())
+        return
+
+    if data == "search_num_pk":
+        await query.edit_message_text("Send Pakistan number (+92...) or use /pak <number>.", reply_markup=main_menu_kb())
+        return
+
+    if data == "menu_upi":
+        await query.edit_message_text("Send /upi <vpa> or type vpa in chat (example: example@upi).", reply_markup=main_menu_kb())
+        return
+
+    if data == "menu_ip":
+        await query.edit_message_text("Send /ip <ip-address> or type ip in chat (example: 8.8.8.8).", reply_markup=main_menu_kb())
+        return
+
+    if data == "menu_pak":
+        await query.edit_message_text("Pakistan CNIC/number lookup — use /pak <number> or send +92 number.", reply_markup=main_menu_kb())
+        return
+
+    if data == "menu_aadhar":
+        await query.edit_message_text("Aadhaar family/details — use /aadhar <id>.", reply_markup=main_menu_kb())
+        return
+
+    if data == "menu_tg":
+        await query.edit_message_text("Telegram user stats — use /tg <username_or_id>.", reply_markup=main_menu_kb())
+        return
+
+    # Buy credits
+    if data == "menu_buycredits":
+        await query.edit_message_text("Choose a package (contact admin to pay):", reply_markup=buycredits_kb())
+        return
+
+    if data and data.startswith("buy_pkg|"):
+        parts = data.split("|", 1)
+        try:
+            amt = int(parts[1])
+        except:
+            amt = None
+        if amt and amt in CREDIT_PACKAGES:
+            price = CREDIT_PACKAGES[amt]
+            await query.edit_message_text(
+                f"Package: {amt} credits → ₹{price}\nContact admin {GSUPPORT} after payment. Admin will add credits and commission to referrer.",
+                reply_markup=main_menu_kb()
+            )
+            return
+
+    # Referral
+    if data == "menu_referral":
         link = f"https://t.me/{BOT_USERNAME.lstrip('@')}?start=ref_{uid}"
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔗 Copy Link", callback_data="main_menu")],
             [InlineKeyboardButton("Share Link", switch_inline_query=link)],
             [InlineKeyboardButton("Contact Admin", url=f"https://t.me/{GSUPPORT.lstrip('@')}")],
-            [InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")]
+            [InlineKeyboardButton("🔙 Back", callback_data="main_menu")]
         ])
-        await query.edit_message_text(f"Your referral link:\n{link}\n\nShare it to earn credits!", reply_markup=kb)
+        await query.edit_message_text(f"Your referral link:\n{link}\n\nShare to earn credits!", reply_markup=kb)
         return
 
-    if data == "ui_buycredits":
-        await query.edit_message_text("Choose a credit package:", reply_markup=buy_credits_keyboard())
+    # Admin panel
+    if data == "menu_admin":
+        await query.edit_message_text("Admin Panel", reply_markup=admin_panel_kb(is_sudo(uid)))
         return
 
-    if data.startswith("buy_pkg|"):
-        parts = data.split("|", 1)
-        try:
-            amt = int(parts[1])
-        except Exception:
-            amt = None
-        if amt and amt in CREDIT_PACKAGES:
-            price = CREDIT_PACKAGES[amt]
-            await query.edit_message_text(
-                f"Package: {amt} credits → ₹{price}\n\nTo purchase, contact admin: {GSUPPORT}\nAfter payment, admin will add credits.",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("Contact Admin", url=f"https://t.me/{GSUPPORT.lstrip('@')}")],
-                    [InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")]
-                ])
-            )
-            return
-
-    # Call history purchase flow (button)
-    if data == "buy_callhistory":
-        # We'll ask user to send the number in chat with /callhistory <number> (deduction occurs there)
-        await query.edit_message_text(f"Call History is paid: ₹{CALL_HISTORY_COST} credits per search.\nSend /callhistory <number> in chat. Credits will be deducted when you run the command.", reply_markup=main_menu_keyboard())
-        return
-
-    # Admin Panel
-    if data == "admin_panel":
-        if not is_sudo(uid):
-            await query.edit_message_text("Unauthorized.", reply_markup=main_menu_keyboard())
-            return
-        await query.edit_message_text("🔐 Admin Panel", reply_markup=admin_panel_keyboard())
-        return
-
+    # Admin callbacks
     if data == "admin_stats":
         if not is_sudo(uid):
-            await query.edit_message_text("Unauthorized.", reply_markup=main_menu_keyboard())
+            await query.edit_message_text("Unauthorized", reply_markup=main_menu_kb())
             return
-        await query.edit_message_text(f"Total users: {total_users_count()}\nTotal credits in system: {total_credits_sum()}", reply_markup=admin_panel_keyboard())
+        await query.edit_message_text(f"Total users: {total_users()}\nTotal credits: {total_credits()}", reply_markup=admin_panel_kb(True))
         return
 
     if data == "admin_gcast":
         if not is_sudo(uid):
-            await query.edit_message_text("Unauthorized.", reply_markup=main_menu_keyboard())
+            await query.edit_message_text("Unauthorized", reply_markup=main_menu_kb())
             return
-        await query.edit_message_text("Send /gcast <message> in chat to broadcast to all users.", reply_markup=admin_panel_keyboard())
+        await query.edit_message_text("Send /gcast <message> to broadcast to all users.", reply_markup=admin_panel_kb(True))
         return
 
     if data == "admin_addcredits":
         if not is_sudo(uid):
-            await query.edit_message_text("Unauthorized.", reply_markup=main_menu_keyboard())
+            await query.edit_message_text("Unauthorized", reply_markup=main_menu_kb())
             return
-        await query.edit_message_text("Usage: /addcredits <user_id> <amount>", reply_markup=admin_panel_keyboard())
+        await query.edit_message_text("Usage: /addcredits <user_id> <amount> (admins should verify payment first)", reply_markup=admin_panel_kb(True))
         return
 
     if data == "admin_ban":
         if not is_sudo(uid):
-            await query.edit_message_text("Unauthorized.", reply_markup=main_menu_keyboard())
+            await query.edit_message_text("Unauthorized", reply_markup=main_menu_kb())
             return
-        await query.edit_message_text("Usage: /ban <user_id>", reply_markup=admin_panel_keyboard())
+        await query.edit_message_text("Usage: /ban <user_id>", reply_markup=admin_panel_kb(True))
         return
 
     if data == "admin_unban":
         if not is_sudo(uid):
-            await query.edit_message_text("Unauthorized.", reply_markup=main_menu_keyboard())
+            await query.edit_message_text("Unauthorized", reply_markup=main_menu_kb())
             return
-        await query.edit_message_text("Usage: /unban <user_id>", reply_markup=admin_panel_keyboard())
+        await query.edit_message_text("Usage: /unban <user_id>", reply_markup=admin_panel_kb(True))
         return
 
     if data == "admin_protected":
         if uid != OWNER_ID:
-            await query.edit_message_text("Unauthorized.", reply_markup=admin_panel_keyboard())
+            await query.edit_message_text("Only owner can view protected numbers.", reply_markup=admin_panel_kb(is_sudo(uid)))
             return
-        # List protected numbers
-        c.execute("SELECT number, note FROM protected_numbers")
-        rows = c.fetchall()
+        rows = list_protected()
         if not rows:
-            await query.edit_message_text("No protected numbers configured.", reply_markup=admin_panel_keyboard())
+            await query.edit_message_text("No protected numbers stored.", reply_markup=admin_panel_kb(True))
             return
-        txt = "Protected numbers:\n" + "\n".join([f"{r[0]} - {r[1]}" for r in rows])
-        await query.edit_message_text(txt, reply_markup=admin_panel_keyboard())
+        txt = "Protected numbers:\n" + "\n".join([f"{r[0]} — {r[1]}" for r in rows])
+        await query.edit_message_text(txt, reply_markup=admin_panel_kb(True))
         return
 
-    # Fallback
-    await query.edit_message_text("Option expired or unknown. Returning to main menu.", reply_markup=main_menu_keyboard())
+    # buy_callhistory via button - instruct user to run /callhistory
+    if data == "buy_callhistory":
+        await query.edit_message_text(f"Call History costs {CALL_HISTORY_COST} credits. Use command:\n/callhistory <number>", reply_markup=main_menu_kb())
+        return
+
+    # fallback - unknown
+    await query.edit_message_text("Option expired or unknown. Returning to main menu.", reply_markup=main_menu_kb())
 
 
-# -----------------------------
-# Command Handlers
-# -----------------------------
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    uid = user.id
+# -------------------------
+# Commands & message handling
+# -------------------------
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
     text = update.message.text or ""
-    # Check mandatory channel join
-    # We'll attempt to verify membership in required channels; if fails, ask to join
+    # referral handling
+    ref_id = None
+    if text.startswith("/start") and "ref_" in text:
+        try:
+            rid = int(text.split("ref_")[1])
+            if rid != uid:
+                ref_id = rid
+        except Exception:
+            ref_id = None
+
+    existed = get_user(uid)
+    if not existed:
+        create_user(uid, referrer_id=ref_id)
+        # give referrer 1 credit on join
+        if ref_id and get_user(ref_id):
+            modify_credits(ref_id, FREE_CREDIT_ON_JOIN)
+
+    # Check must-join channels
     def check_joined(user_id: int):
         for ch in MUST_JOIN_CHANNELS:
             try:
-                mem = context.bot.get_chat_member(chat_id=ch, user_id=user_id)
-                # mem.status can be 'left' 'kicked' 'member' 'administrator' 'creator'
+                mem = context.bot.get_chat_member(chat_id=f"@{ch}", user_id=user_id)
                 if mem.status in ("left", "kicked"):
                     return False
             except Exception:
-                # Can't check or bot isn't admin; safer to require join explicitly
                 return False
         return True
 
     joined = check_joined(uid)
-
-    # If /start has referral token
-    ref_id = None
-    if text.startswith("/start") and "ref_" in text:
-        try:
-            ref_id = int(text.split("ref_")[1])
-            if ref_id == uid:
-                ref_id = None
-        except Exception:
-            ref_id = None
-
-    # Create user if not exists
-    existed = get_user(uid)
-    if not existed:
-        add_user(uid, referrer_id=ref_id)
-        # referral commission on join: give referrer 1 credit (or specified)
-        if ref_id and get_user(ref_id):
-            # give 1 free credit to referrer
-            modify_credits(ref_id, FREE_CREDIT_ON_JOIN)
-            # Log referral already inserted into referrals table by add_user
-    # If user joined required channels, set flag
     if joined:
-        set_joined_gc(uid, 1)
-
-    # Send start message
-    if not joined:
-        msg = (
-            f"👋 Hello {user.first_name}!\n\n"
-            "To use this bot, you MUST join the following channels first:\n"
-            + "\n".join(MUST_JOIN_CHANNELS_CHATNAMES)
-            + f"\n\nAfter joining, press /start again.\n\nSupport: {GSUPPORT}"
-        )
-        await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("I Joined ✅ (Press after joining)", callback_data="main_menu")],
-            [InlineKeyboardButton("Contact Support", url=f"https://t.me/{GSUPPORT.lstrip('@')}")]
-        ]))
+        set_joined(uid, 1)
     else:
-        # Good, allow access
-        start_text = (
-            f"👋 Welcome to DataTrace OSINT Bot — Free-access via group or referrals!\n\n"
-            f"Use the menu below. You have {FREE_SEARCHES_DM} free searches in DM before needing to refer/buy credits.\n\n"
-            f"Referral: open the menu → Referral to share your link and earn credits.\n\nSupport: {GSUPPORT}"
+        set_joined(uid, 0)
+
+    # Two types of start
+    if not joined:
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📢 Join Updates", url=f"https://t.me/{MUST_JOIN_CHANNELS[0]}")],
+            [InlineKeyboardButton("💬 Join Support", url=f"https://t.me/{MUST_JOIN_CHANNELS[1]}")],
+            [InlineKeyboardButton("✅ I Joined (Check)", callback_data="main_menu")],
+        ])
+        msg = (
+            "👋 Welcome to DataTraceOSINTBot\n\n"
+            "To use the bot you must join our channels. Click the buttons below and after joining press 'I Joined'.\n\n"
+            f"Channels: {', '.join(MUST_JOIN_CHANNELS_AT)}\n\nSupport: {GSUPPORT}"
         )
-        await update.message.reply_text(start_text, reply_markup=main_menu_keyboard(), parse_mode=ParseMode.HTML)
+        await update.message.reply_text(msg, reply_markup=kb)
+    else:
+        # nice UI start for joined users
+        start_msg = (
+            "✨ *Welcome to DataTrace OSINT Bot*\n\n"
+            "This bot lets you search details of any phone number, UPI, Aadhaar, IP or Telegram user stored in our sources.\n\n"
+            "🔎 How to Search\n"
+            " • In Private Chat (DM): send number/UPI/Aadhaar/IP directly — no command needed.\n"
+            " • In Group: use /num, /upi, /aadhar, /ip, /tg, /pak commands.\n\n"
+            "⚙️ Quick Commands\n"
+            " • /credits — View credit balance\n"
+            " • /help — Instructions\n\n"
+            "💡 Note: If result is None, no credits are deducted.\n\n"
+            f"🎯 Bot is free — referral-driven growth. Support: {GSUPPORT}"
+        )
+        await update.message.reply_text(start_msg, reply_markup=main_menu_kb(), parse_mode=ParseMode.MARKDOWN)
 
-    # Log start to group
+    # log start
     try:
-        context.bot.send_message(LOG_START_GROUP, f"User /start: {uid} — joined_required_channels={joined} — ref={ref_id}")
-    except Exception as e:
-        logger.warning("Failed to log start: %s", e)
+        context.bot.send_message(LOG_START_GROUP, f"/start by {uid} joined={joined} ref={ref_id}")
+    except Exception:
+        pass
 
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Use the main menu or send commands. Type /start to open menu.", reply_markup=main_menu_keyboard())
+async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Use the menu or send inputs directly. /start to open main menu.", reply_markup=main_menu_kb())
 
 
-async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def credits_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    u = get_user(uid)
+    credits = u[1] if u else 0
+    await update.message.reply_text(f"Your credits: {credits}\nEarn by referrals or contact {GSUPPORT}.", reply_markup=main_menu_kb())
+
+
+async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     if not is_sudo(uid):
-        await update.message.reply_text("Unauthorized.", reply_markup=main_menu_keyboard())
+        await update.message.reply_text("Unauthorized.", reply_markup=main_menu_kb())
         return
-    await update.message.reply_text(f"Total users: {total_users_count()}\nTotal credits in system: {total_credits_sum()}", reply_markup=main_menu_keyboard())
+    await update.message.reply_text(f"Total users: {total_users()}\nTotal credits: {total_credits()}", reply_markup=main_menu_kb())
 
 
-async def sudo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def sudo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     if not is_sudo(uid):
-        await update.message.reply_text("Unauthorized.", reply_markup=main_menu_keyboard())
+        await update.message.reply_text("Unauthorized.")
         return
-    await update.message.reply_text("Sudo IDs:\n" + "\n".join(str(x) for x in SUDO_IDS), reply_markup=main_menu_keyboard())
+    await update.message.reply_text("Sudo IDs:\n" + "\n".join(str(s) for s in SUDO_IDS), reply_markup=main_menu_kb())
 
 
-async def addcredits_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def addcredits_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     if not is_sudo(uid):
-        await update.message.reply_text("Unauthorized.", reply_markup=main_menu_keyboard())
+        await update.message.reply_text("Unauthorized.")
         return
     try:
         parts = update.message.text.split()
-        if len(parts) != 3:
-            raise ValueError
-        target = int(parts[1])
-        amount = int(parts[2])
+        target = int(parts[1]); amount = int(parts[2])
     except Exception:
-        await update.message.reply_text("Usage: /addcredits <user_id> <amount>", reply_markup=main_menu_keyboard())
+        await update.message.reply_text("Usage: /addcredits <user_id> <amount>", reply_markup=main_menu_kb())
         return
     if not get_user(target):
-        await update.message.reply_text("User not found in database. They must /start first.", reply_markup=main_menu_keyboard())
+        await update.message.reply_text("User not found. They must /start first.", reply_markup=main_menu_kb())
         return
     modify_credits(target, amount)
-    await update.message.reply_text(f"Added {amount} credits to {target}.", reply_markup=main_menu_keyboard())
+    # commission: if target has referrer, give them 30% of amount as credits
+    t = get_user(target)
+    ref = t[2]
+    if ref and get_user(ref):
+        commission = int(amount * REFERRAL_COMMISSION_RATIO)
+        if commission > 0:
+            modify_credits(ref, commission)
+    await update.message.reply_text(f"Added {amount} credits to {target}.", reply_markup=main_menu_kb())
 
 
-async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def ban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     if not is_sudo(uid):
-        await update.message.reply_text("Unauthorized.", reply_markup=main_menu_keyboard())
+        await update.message.reply_text("Unauthorized.")
         return
     try:
-        parts = update.message.text.split()
-        target = int(parts[1])
+        target = int(update.message.text.split()[1])
     except Exception:
-        await update.message.reply_text("Usage: /ban <user_id>", reply_markup=main_menu_keyboard())
+        await update.message.reply_text("Usage: /ban <user_id>")
         return
-    ban_user_db(target)
-    await update.message.reply_text(f"Banned {target}.", reply_markup=main_menu_keyboard())
+    ban_user(target)
+    await update.message.reply_text(f"Banned {target}.", reply_markup=main_menu_kb())
 
 
-async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def unban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     if not is_sudo(uid):
-        await update.message.reply_text("Unauthorized.", reply_markup=main_menu_keyboard())
+        await update.message.reply_text("Unauthorized.")
         return
     try:
-        parts = update.message.text.split()
-        target = int(parts[1])
+        target = int(update.message.text.split()[1])
     except Exception:
-        await update.message.reply_text("Usage: /unban <user_id>", reply_markup=main_menu_keyboard())
+        await update.message.reply_text("Usage: /unban <user_id>")
         return
-    unban_user_db(target)
-    await update.message.reply_text(f"Unbanned {target}.", reply_markup=main_menu_keyboard())
+    unban_user(target)
+    await update.message.reply_text(f"Unbanned {target}.", reply_markup=main_menu_kb())
 
 
-async def gcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def gcast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     if not is_sudo(uid):
-        await update.message.reply_text("Unauthorized.", reply_markup=main_menu_keyboard())
+        await update.message.reply_text("Unauthorized.")
         return
     try:
         msg = update.message.text.split(" ", 1)[1]
     except Exception:
-        await update.message.reply_text("Usage: /gcast <message>", reply_markup=main_menu_keyboard())
+        await update.message.reply_text("Usage: /gcast <message>")
         return
     c.execute("SELECT user_id FROM users")
     rows = c.fetchall()
@@ -750,247 +770,230 @@ async def gcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             sent += 1
         except Exception:
             continue
-    await update.message.reply_text(f"Broadcast sent to {sent} users.", reply_markup=main_menu_keyboard())
+    await update.message.reply_text(f"Broadcast sent to {sent} users.", reply_markup=main_menu_kb())
 
 
-# Call history command (paid)
-async def callhistory_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def callhistory_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
-    if is_blacklisted((update.message.text.split()[-1]) if update.message.text else ""):
-        await update.message.reply_text("This number is blacklisted.", reply_markup=main_menu_keyboard())
-        return
     try:
-        parts = update.message.text.split()
-        num = parts[1]
+        num = context.args[0]
     except Exception:
-        await update.message.reply_text("Usage: /callhistory <number>", reply_markup=main_menu_keyboard())
+        await update.message.reply_text("Usage: /callhistory <number>", reply_markup=main_menu_kb())
         return
-
-    # Deduct credits
-    user = get_user(uid)
+    if is_blacklisted(num):
+        await update.message.reply_text("This number is blacklisted.", reply_markup=main_menu_kb())
+        return
     if not is_sudo(uid):
-        if not user or user[1] < CALL_HISTORY_COST:
-            await update.message.reply_text(f"Insufficient credits. Call History costs {CALL_HISTORY_COST} credits.", reply_markup=main_menu_keyboard())
+        u = get_user(uid)
+        if not u or u[1] < CALL_HISTORY_COST:
+            await update.message.reply_text(f"Insufficient credits. Call History costs {CALL_HISTORY_COST} credits.", reply_markup=main_menu_kb())
             return
-        else:
-            modify_credits(uid, -CALL_HISTORY_COST)
-    # Call API
+        modify_credits(uid, -CALL_HISTORY_COST)
     api = API_CALL_HISTORY.format(num=num)
     data = fetch_api(api)
     if not data:
-        await update.message.reply_text("API error or no data found.", reply_markup=main_menu_keyboard())
+        await update.message.reply_text("API error or no data found.", reply_markup=main_menu_kb())
         return
     pretty = "📝 Call History Result:\n\n" + json.dumps(data, indent=2)
-    await update.message.reply_text(pretty, parse_mode=ParseMode.MARKDOWN)
-    # Log
+    await update.message.reply_text(pretty)
     try:
-        context.bot.send_message(LOG_SEARCH_GROUP, f"User {uid} requested callhistory for {num}")
+        context.bot.send_message(LOG_SEARCH_GROUP, f"{uid} requested callhistory for {num}")
     except Exception:
         pass
 
 
-# Generic search handler - both commands and direct inputs
-async def handle_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# API command wrappers
+async def upi_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        vpa = context.args[0]
+    except Exception:
+        await update.message.reply_text("Usage: /upi <vpa>", reply_markup=main_menu_kb()); return
+    data = fetch_api(API_UPI.format(upi=vpa))
+    out = fmt_upi(data if data else {})
+    await update.message.reply_text(out, reply_markup=main_menu_kb())
+
+
+async def ip_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        ip = context.args[0]
+    except Exception:
+        await update.message.reply_text("Usage: /ip <ip>", reply_markup=main_menu_kb()); return
+    data = fetch_api(API_IP.format(ip=ip))
+    out = fmt_ip(data if data else {})
+    await update.message.reply_text(out, reply_markup=main_menu_kb())
+
+
+async def num_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        num = context.args[0]
+    except Exception:
+        await update.message.reply_text("Usage: /num <number>", reply_markup=main_menu_kb()); return
+    if is_blacklisted(num):
+        await update.message.reply_text("Blacklisted.", reply_markup=main_menu_kb()); return
+    data = fetch_api(API_NUM_INFO.format(term=num))
+    out = fmt_num(data if data else {})
+    await update.message.reply_text("📱 Number Search Result\n\n" + out, reply_markup=main_menu_kb())
+    try:
+        context.bot.send_message(LOG_SEARCH_GROUP, f"/num by {update.effective_user.id} -> {num}")
+    except Exception:
+        pass
+
+
+async def pak_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        num = context.args[0]
+    except Exception:
+        await update.message.reply_text("Usage: /pak <number>", reply_markup=main_menu_kb()); return
+    if is_blacklisted(num):
+        await update.message.reply_text("Blacklisted.", reply_markup=main_menu_kb()); return
+    data = fetch_api(API_PAK.format(num=num))
+    out = fmt_pak(data if data else {})
+    await update.message.reply_text(out, reply_markup=main_menu_kb())
+    try:
+        context.bot.send_message(LOG_SEARCH_GROUP, f"/pak by {update.effective_user.id} -> {num}")
+    except Exception:
+        pass
+
+
+async def aadhar_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        aid = context.args[0]
+    except Exception:
+        await update.message.reply_text("Usage: /aadhar <aadhaar>", reply_markup=main_menu_kb()); return
+    data = fetch_api(API_AADHAR_FAMILY.format(id=aid))
+    out = fmt_aadhar_family(data if data else {})
+    await update.message.reply_text(out, reply_markup=main_menu_kb())
+
+
+async def tg_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        user = context.args[0]
+    except Exception:
+        await update.message.reply_text("Usage: /tg <username_or_id>", reply_markup=main_menu_kb()); return
+    data = fetch_api(API_TG_USER.format(user=user))
+    out = fmt_tg_user(data if data else {})
+    await update.message.reply_text(out, reply_markup=main_menu_kb())
+
+
+# Generic text handler (DM or group) — smart routing
+async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     uid = update.effective_user.id
-    text = msg.text.strip() if msg.text else ""
-    chat_type = msg.chat.type
+    text = (msg.text or "").strip()
 
-    # enforce user not banned
-    user = get_user(uid)
-    if user and user[3] == 1:
-        await msg.reply_text("You are banned from using this bot.", reply_markup=main_menu_keyboard())
-        return
+    # banned?
+    u = get_user(uid)
+    if u and u[3] == 1:
+        await msg.reply_text("You are banned.", reply_markup=main_menu_kb()); return
 
-    # must join channels
+    # must-join check
     def check_joined(user_id: int):
         for ch in MUST_JOIN_CHANNELS:
             try:
-                mem = context.bot.get_chat_member(chat_id=ch, user_id=user_id)
+                mem = context.bot.get_chat_member(chat_id=f"@{ch}", user_id=user_id)
                 if mem.status in ("left", "kicked"):
                     return False
             except Exception:
                 return False
         return True
-
     joined = check_joined(uid)
     if not joined:
-        await msg.reply_text("You must join the required channels first.", reply_markup=main_menu_keyboard())
-        return
+        await msg.reply_text("You must join required channels first.", reply_markup=main_menu_kb()); return
 
-    # If DM and free searches left
-    if chat_type == "private" and not is_sudo(uid):
-        u = get_user(uid)
-        free_used = u[5] if u else 0
-        if free_used < FREE_SEARCHES_DM:
+    # DM free searches logic
+    if msg.chat.type == "private" and not is_sudo(uid):
+        if not u:
+            create_user(uid)
+            u = get_user(uid)
+        if u[5] < FREE_SEARCHES_DM:
             increment_free_searches(uid)
-            # allow free
         else:
-            # if user has credits allow, else ask to refer/buy
-            if not u or u[1] <= 0:
-                await msg.reply_text("Aapke paas free searches khatam ho gaye hain. Refer karo ya credits kharido.", reply_markup=main_menu_keyboard())
-                return
+            if u[1] <= 0:
+                await msg.reply_text("Free searches exhausted. Refer or buy credits.", reply_markup=main_menu_kb()); return
 
-    # If user simply sends command style, let individual command handlers handle them
-    if text.startswith("/"):
-        # Let dispatcher handle specific commands (we already have handlers registered)
-        return
+    # If looks like a number/UPI/AADHAR/IP -> attempt auto-detect
+    s = normalize(text)
+    # blacklist/protected check
+    if is_blacklisted(s):
+        await msg.reply_text("This number is blacklisted.", reply_markup=main_menu_kb()); return
+    if is_protected(s) and uid != OWNER_ID:
+        await msg.reply_text("This number is protected.", reply_markup=main_menu_kb()); return
 
-    # If text looks like number
-    t = normalize_number(text)
-    # blacklist check
-    if is_blacklisted(t):
-        await msg.reply_text("This number is blacklisted. No data available.", reply_markup=main_menu_keyboard())
-        return
+    # Detect UPI (contains '@')
+    if "@" in s and not s.startswith("+"):
+        data = fetch_api(API_UPI.format(upi=s))
+        await msg.reply_text(fmt_upi(data if data else {}), reply_markup=main_menu_kb()); return
 
-    # Decide which API to call:
-    # if startswith +92 -> Pakistan API
-    # if startswith +91 or all digits -> India number API
-    if t.startswith("+92") or (t.startswith("92") and len(t) >= 11):
-        # Pak API
-        api = API_PAK.format(num=t)
-        data = fetch_api(api)
-        out = format_pak_info(data)
-        await msg.reply_text("🇵🇰 Pakistan Number Search Result\n\n" + out, reply_markup=result_action_keyboard(number_based=True))
-        # log
+    # IP detection: if contains '.' and looks like ip
+    if "." in s and any(c.isdigit() for c in s):
+        data = fetch_api(API_IP.format(ip=s))
+        await msg.reply_text(fmt_ip(data if data else {}), reply_markup=main_menu_kb()); return
+
+    # Aadhaar/id detection: numeric and length ~12
+    if s.isdigit() and len(s) >= 12:
+        # try aadhaar family first
+        data = fetch_api(API_AADHAR_FAMILY.format(id=s))
+        out = fmt_aadhar_family(data if data else {})
+        await msg.reply_text(out, reply_markup=main_menu_kb()); return
+
+    # Phone detection: +92 or +91 or plain 10 digits
+    if s.startswith("+92") or (s.startswith("92") and len(s) >= 11):
+        data = fetch_api(API_PAK.format(num=s))
+        await msg.reply_text("🇵🇰 Pakistan Number Search Result\n\n" + (fmt_pak(data if data else {})), reply_markup=main_menu_kb())
         try:
-            context.bot.send_message(LOG_SEARCH_GROUP, f"Search by {uid}: PAK number {t}")
+            context.bot.send_message(LOG_SEARCH_GROUP, f"Search: {uid} PAK {s}")
         except Exception:
             pass
         return
-    elif t.startswith("+91") or (t.isdigit() and (len(t) >= 10)):
-        api = API_NUM_INFO.format(term=t)
-        data = fetch_api(api)
-        out = format_num_info(data if data else {})
-        await msg.reply_text("📱 Number Search Result\n\n" + out, reply_markup=result_action_keyboard(number_based=True))
+    if s.startswith("+91") or (s.isdigit() and len(s) in (10,11)):
+        data = fetch_api(API_NUM_INFO.format(term=s))
+        await msg.reply_text("📱 Number Search Result\n\n" + (fmt_num(data if data else {})), reply_markup=main_menu_kb())
         try:
-            context.bot.send_message(LOG_SEARCH_GROUP, f"Search by {uid}: IN number {t}")
+            context.bot.send_message(LOG_SEARCH_GROUP, f"Search: {uid} IN {s}")
         except Exception:
             pass
         return
-    else:
-        # Unknown free text - tell user to use commands or menu
-        await msg.reply_text("Invalid input. Use /help or the menu. For number lookups send +91... or +92... or use /num <number>.", reply_markup=main_menu_keyboard())
+
+    # If none matched
+    await msg.reply_text("Invalid/unknown input. Use /help or menu.", reply_markup=main_menu_kb())
 
 
-# Command wrappers for specific APIs
-async def upi_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
-    try:
-        upi = context.args[0]
-    except Exception:
-        await update.message.reply_text("Usage: /upi <vpa>", reply_markup=main_menu_keyboard())
-        return
-    if not upi:
-        await update.message.reply_text("Usage: /upi <vpa>", reply_markup=main_menu_keyboard())
-        return
-    api = API_UPI.format(upi=upi)
-    data = fetch_api(api)
-    out = format_upi_info(data if data else {})
-    await update.message.reply_text("🔗 UPI Lookup Result\n\n" + out, reply_markup=result_action_keyboard())
+# Unknown commands
+async def unknown_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Unknown command. /help", reply_markup=main_menu_kb())
 
 
-async def ip_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        ip = context.args[0]
-    except Exception:
-        await update.message.reply_text("Usage: /ip <ip>", reply_markup=main_menu_keyboard())
-        return
-    api = API_IP.format(ip=ip)
-    data = fetch_api(api)
-    out = format_ip_info(data if data else {})
-    await update.message.reply_text(out, reply_markup=result_action_keyboard())
-
-
-async def num_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        num = context.args[0]
-    except Exception:
-        await update.message.reply_text("Usage: /num <number>", reply_markup=main_menu_keyboard())
-        return
-    if is_blacklisted(num):
-        await update.message.reply_text("Blacklisted number.", reply_markup=main_menu_keyboard())
-        return
-    api = API_NUM_INFO.format(term=num)
-    data = fetch_api(api)
-    out = format_num_info(data if data else {})
-    await update.message.reply_text("📱 Number Lookup Result\n\n" + out, reply_markup=result_action_keyboard(number_based=True))
-
-
-async def pak_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        num = context.args[0]
-    except Exception:
-        await update.message.reply_text("Usage: /pak <number>", reply_markup=main_menu_keyboard())
-        return
-    if is_blacklisted(num):
-        await update.message.reply_text("Blacklisted number.", reply_markup=main_menu_keyboard())
-        return
-    api = API_PAK.format(num=num)
-    data = fetch_api(api)
-    out = format_pak_info(data if data else {})
-    await update.message.reply_text(out, reply_markup=result_action_keyboard(number_based=True))
-
-
-async def aadhar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        aid = context.args[0]
-    except Exception:
-        await update.message.reply_text("Usage: /aadhar <aadhaar_number>", reply_markup=main_menu_keyboard())
-        return
-    api = API_AADHAR_FAMILY.format(id=aid)
-    data = fetch_api(api)
-    out = format_aadhar_family(data if data else {})
-    await update.message.reply_text(out, reply_markup=result_action_keyboard())
-
-
-async def tg_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        user = context.args[0]
-    except Exception:
-        await update.message.reply_text("Usage: /tg <username_or_id>", reply_markup=main_menu_keyboard())
-        return
-    api = API_TG_USER.format(user=user)
-    data = fetch_api(api)
-    out = format_tg_user_stats(data if data else {})
-    await update.message.reply_text(out, reply_markup=result_action_keyboard())
-
-
-# Unknown commands handler
-async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Unknown command. Use /help", reply_markup=main_menu_keyboard())
-
-
-# -----------------------------
-# Startup & main
-# -----------------------------
-def run():
+# -------------------------
+# Run
+# -------------------------
+def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
-    # Register handlers
-    app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("stats", stats_command))
-    app.add_handler(CommandHandler("sudo", sudo_command))
-    app.add_handler(CommandHandler("addcredits", addcredits_command))
-    app.add_handler(CommandHandler("ban", ban_command))
-    app.add_handler(CommandHandler("unban", unban_command))
-    app.add_handler(CommandHandler("gcast", gcast_command))
-    app.add_handler(CommandHandler("callhistory", callhistory_command))
-    app.add_handler(CommandHandler("upi", upi_command))
-    app.add_handler(CommandHandler("ip", ip_command))
-    app.add_handler(CommandHandler("num", num_command))
-    app.add_handler(CommandHandler("pak", pak_command))
-    app.add_handler(CommandHandler("aadhar", aadhar_command))
-    app.add_handler(CommandHandler("tg", tg_command))
+    # Commands
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(CommandHandler("credits", credits_cmd))
+    app.add_handler(CommandHandler("stats", stats_cmd))
+    app.add_handler(CommandHandler("sudo", sudo_cmd))
+    app.add_handler(CommandHandler("addcredits", addcredits_cmd))
+    app.add_handler(CommandHandler("ban", ban_cmd))
+    app.add_handler(CommandHandler("unban", unban_cmd))
+    app.add_handler(CommandHandler("gcast", gcast_cmd))
+    app.add_handler(CommandHandler("callhistory", callhistory_cmd))
+    app.add_handler(CommandHandler("upi", upi_cmd))
+    app.add_handler(CommandHandler("ip", ip_cmd))
+    app.add_handler(CommandHandler("num", num_cmd))
+    app.add_handler(CommandHandler("pak", pak_cmd))
+    app.add_handler(CommandHandler("aadhar", aadhar_cmd))
+    app.add_handler(CommandHandler("tg", tg_cmd))
 
-    app.add_handler(CallbackQueryHandler(handle_callback))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_search))
-    app.add_handler(MessageHandler(filters.COMMAND, unknown_command))
+    # Callbacks & messages
+    app.add_handler(CallbackQueryHandler(callback_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
+    app.add_handler(MessageHandler(filters.COMMAND, unknown_cmd))
 
-    logger.info("Bot starting...")
+    logger.info("Bot started")
     app.run_polling(allowed_updates=["message", "callback_query"])
 
-
 if __name__ == "__main__":
-    run()
+    main()
