@@ -622,8 +622,7 @@ Total credits: {total_credits()}""",
 
     # buy_callhistory via button - instruct user to run /callhistory
     if data == "buy_callhistory":
-        await query.edit_message_text(f"Call History costs {CALL_HISTORY_COST} credits. Use command:
-/callhistory <number>", reply_markup=InlineKeyboardMarkup(back_and_support("main_menu")))
+        await query.edit_message_text(f"Call History costs {CALL_HISTORY_COST} credits. Use command: /callhistory <number>", reply_markup=InlineKeyboardMarkup(back_and_support("main_menu")))
         return
 
     # fallback - unknown
