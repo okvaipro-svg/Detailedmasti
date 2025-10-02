@@ -531,19 +531,19 @@ For support, contact admin.
         return
 
     if data and data.startswith("buy_pkg|"):
-        parts = data.split("|", 1)
-        try:
-            amt = int(parts[1])
-        except:
-            amt = None
-        if amt and amt in CREDIT_PACKAGES:
-            price = CREDIT_PACKAGES[amt]
-            await query.edit_message_text(
-    f"Package: {amt} credits → ₹{price}
-"
-    f"Contact admin {GSUPPORT} after payment. Admin will add credits and commission to referrer.",
-    reply_markup=InlineKeyboardMarkup(back_and_support("main_menu"))
-            )
+    parts = data.split("|", 1)
+    try:
+        amt = int(parts[1])
+    except:
+        amt = None
+    if amt and amt in CREDIT_PACKAGES:
+        price = CREDIT_PACKAGES[amt]
+        await query.edit_message_text(
+            f"""Package: {amt} credits → ₹{price}
+Contact admin {GSUPPORT} after payment. Admin will add credits and commission to referrer.""",
+            reply_markup=InlineKeyboardMarkup(back_and_support("main_menu"))
+        )
+        return
 
     # Referral
     if data == "menu_referral":
@@ -631,32 +631,20 @@ Total credits: {total_credits()}", reply_markup=admin_panel_kb(True))
 # -------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    start_text = f"""👋 **Welcome {user.first_name} to DataTrace OSINT Bot**
 
-    start_text = (
-        f"👋 **Welcome {user.first_name} to DataTrace OSINT Bot**
+This bot helps you search and trace details from our private OSINT database.
 
-"
-        "This bot helps you search and trace details from our private OSINT database.
+⚡ What you can do here:
+ • Search phone numbers, UPI IDs, Aadhaar, IPs, Telegram IDs, CNIC (PK)
+ • Use quick auto-search in DM
+ • Get credit balance & referral rewards
 
-"
-        "⚡ **What you can do here:**
-"
-        " • Search phone numbers, UPI IDs, Aadhaar, IPs, Telegram IDs, CNIC (PK)
-"
-        " • Use quick auto-search in DM
-"
-        " • Get credit balance & referral rewards
+🛠 How to Use
+ • In Private Chat → just send any number, email, UPI, Aadhaar, or IP
+ • In Groups → use commands like /num 9876543210
 
-"
-        "🛠 **How to Use**
-"
-        " • In Private Chat → just send any number, email, UPI, Aadhaar, or IP
-"
-        " • In Groups → use commands like `/num 9876543210`
-
-"
-        "💡 *No credits are deducted if result = Not Found.*"
-    )
+💡 No credits are deducted if result = Not Found."""
     await update.message.reply_text(start_text, reply_markup=main_menu_kb(), parse_mode=ParseMode.MARKDOWN)
 
     # log start
