@@ -469,7 +469,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("✨ DataTrace OSINT — Main Menu", reply_markup=main_menu_kb())
         return
 
-        if data == "menu_help":
+    if data == "menu_help":
         help_txt = """ℹ️ *DataTrace OSINT Bot - Help*
 
 • Send phone numbers, UPI, Aadhaar, IP, or Telegram usernames directly in DM.
