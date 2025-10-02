@@ -608,16 +608,18 @@ Total credits: {total_credits()}""",
         return
 
     if data == "admin_protected":
-        if uid != OWNER_ID:
-            await query.edit_message_text("Only owner can view protected numbers.", reply_markup=admin_panel_kb(is_sudo(uid)))
-            return
-        rows = list_protected()
-        if not rows:
-            await query.edit_message_text("No protected numbers stored.", reply_markup=admin_panel_kb(True))
-            return
-        txt = "Protected numbers:
+    if uid != OWNER_ID:
+        await query.edit_message_text("Only owner can view protected numbers.", reply_markup=admin_panel_kb(is_sudo(uid)))
+        return
+    rows = list_protected()
+    if not rows:
+        await query.edit_message_text("No protected numbers stored.", reply_markup=admin_panel_kb(True))
+        return
+    txt = "Protected numbers:
 " + "
 ".join([f"{r[0]} — {r[1]}" for r in rows])
+    await query.edit_message_text(txt, reply_markup=admin_panel_kb(True))
+    return
 
     # buy_callhistory via button - instruct user to run /callhistory
     if data == "buy_callhistory":
