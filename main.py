@@ -616,9 +616,7 @@ Total credits: {total_credits()}""",
     if not rows:
         await query.edit_message_text("No protected numbers stored.", reply_markup=admin_panel_kb(True))
         return
-    txt = "Protected numbers:
-" + "
-".join([f"{r[0]} — {r[1]}" for r in rows])
+    txt = "Protected numbers:" + "".join([f"{r[0]} — {r[1]}" for r in rows])
     await query.edit_message_text(txt, reply_markup=admin_panel_kb(True))
     return
 
