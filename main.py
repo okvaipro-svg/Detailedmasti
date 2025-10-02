@@ -271,7 +271,7 @@ def fmt_upi(d) -> str:
         f"📢 {MUST_JOIN_CHANNELS_AT[0]} | Support: {GSUPPORT}",
     ]
     return "
-".join(lines)
+".join(lines) 
 
 
 def fmt_ip(d) -> str:
