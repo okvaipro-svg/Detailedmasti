@@ -715,11 +715,22 @@ For support, contact admin.
 
 
 async def credits_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Handles the /credits command. Replies with the user's current credit balance.
+    """
     uid = update.effective_user.id
-    u = get_user(uid)
-    credits = u[1] if u else 0
-    await update.message.reply_text(f"Your credits: {credits}
-Earn by referrals or contact {GSUPPORT}.", reply_markup=InlineKeyboardMarkup(back_and_support()))
+    user = get_user(uid)
+    credits = user[1] if user else 0
+
+    reply_text = (
+        f"Your credits: {credits}\n"
+        f"Earn by referrals or contact {GSUPPORT}."
+    )
+
+    await update.message.reply_text(
+        reply_text,
+        reply_markup=InlineKeyboardMarkup(back_and_support())
+    )
 
 
 async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
