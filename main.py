@@ -554,8 +554,13 @@ Contact admin {GSUPPORT} after payment. Admin will add credits and commission to
             [InlineKeyboardButton("Contact Admin", url=f"https://t.me/{GSUPPORT.lstrip('@')}")],
             [InlineKeyboardButton("🔙 Back", callback_data="main_menu")]
         ])
-        await query.edit_message_text(f"Your referral link:
+        await query.edit_message_text(
+    f"""Your referral link:
 {link}
+
+Share to earn credits!""",
+    reply_markup=kb
+        )
 
 Share to earn credits!", reply_markup=kb)
         return
