@@ -512,4 +512,428 @@ async def callback_buy_package(callback_query: types.CallbackQuery):
     # For demo, we simulate instant purchase
     add_credits(user_id, credits)
     await callback_query.message.edit_text(
-        f"✅ You have successfully bought <b>{credits}</b> credits!\n\n{format_credits_
+        f"✅ You have successfully bought <b>{credits}</b> credits!\n\n{format_credits_balance(user_id)}\n\n" + format_footer(),
+        reply_markup=create_main_keyboard()
+    )
+    await callback_query.answer("Purchase successful!")
+
+# ----------------------------
+# MESSAGE HANDLERS
+# ----------------------------
+
+@dp.message_handler(commands=['cancel'], state='*')
+async def cmd_cancel(message: types.Message, state: FSMContext):
+    await state.finish()
+    await message.reply("❌ Operation cancelled.", reply_markup=create_main_keyboard())
+
+@dp.message_handler(state=LookupStates.waiting_for_input)
+async def process_lookup_input(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    user_data = get_user_data(user_id)
+    if user_data.get("banned", False):
+        await message.reply("🚫 You are banned from using this bot.")
+        await state.finish()
+        return
+
+    # Check joined channels before processing
+    if not check_user_join_channels(user_id):
+        await message.reply(
+            "❗ Please join the required channels to use this bot:\n"
+            "• https://t.me/DataTraceUpdates\n"
+            "• https://t.me/DataTraceOSINTSupport\n\n"
+            "Then /start again."
+        )
+        await state.finish()
+        return
+
+    data = await state.get_data()
+    lookup_type = data.get("lookup_type", "number")
+
+    # Enforce credit usage or referral/free searches
+    if user_id not in SUDO_USERS:
+        if user_data['credits'] < 1:
+            # Check free searches done
+            if user_data['free_searches_done'] < FREE_SEARCHES_NO_REF:
+                # Allow free search but count it
+                user_data['free_searches_done'] += 1
+            else:
+                # Ask user to refer or buy credits
+                text = ("You have no credits left.\n"
+                        "Please refer friends to earn free credits or buy credits.\n\n"
+                        + credit_package_info_text() +
+                        "\n\nUse the buttons below.")
+                await message.reply(text, reply_markup=create_buy_credits_keyboard())
+                await state.finish()
+                return
+
+    if lookup_type == "upi":
+        upi_id = message.text.strip()
+        if "@" not in upi_id:
+            await message.reply("❌ Invalid UPI ID format. Example: example@upi")
+            return
+        await process_upi_lookup(message, upi_id)
+    else:
+        text = message.text.strip()
+        # Check if text is number or command with argument
+        # If starts with / command, we ignore here - handled separately
+        if text.startswith("/"):
+            await message.reply("❌ Please send only the number or relevant data for lookup.")
+            return
+
+        # Detect type by prefix
+        # +91 or no prefix = Indian number; +92 = Pakistan
+        # Also direct commands like /num, /pak etc will be handled separately
+        cleaned = clean_number(text)
+        if cleaned.startswith("+92"):
+            await process_pak_number_lookup(message, cleaned)
+        elif cleaned.startswith("+91") or re.match(r"^\d{10}$", cleaned):
+            await process_indian_number_lookup(message, cleaned)
+        elif re.match(r"^\d{7,15}$", cleaned):
+            # If number length between 7 and 15 assume Indian number without +91
+            await process_indian_number_lookup(message, cleaned)
+        else:
+            await message.reply("❌ Invalid input. Please send a valid number or UPI ID.")
+            return
+
+    # Deduct credit if user is not sudo
+    if user_id not in SUDO_USERS:
+        deduct_credits(user_id, 1)
+
+    # Log the search
+    await bot.send_message(
+        CHANNEL_SEARCH_LOG,
+        f"User <a href='tg://user?id={user_id}'>{message.from_user.full_name}</a> searched: {message.text}"
+    )
+    await state.finish()
+
+# ----------------------------
+# COMMANDS WITH ARGUMENTS FOR LOOKUPS
+# ----------------------------
+
+@dp.message_handler(commands=['num'])
+async def cmd_num_lookup(message: types.Message):
+    user_id = message.from_user.id
+    if get_user_data(user_id).get("banned", False):
+        await message.reply("🚫 You are banned from using this bot.")
+        return
+    args = message.get_args()
+    if not args:
+        await message.reply("Usage: /num <number>")
+        return
+    number = clean_number(args)
+    await process_indian_number_lookup(message, number)
+
+@dp.message_handler(commands=['pak'])
+async def cmd_pak_lookup(message: types.Message):
+    user_id = message.from_user.id
+    if get_user_data(user_id).get("banned", False):
+        await message.reply("🚫 You are banned from using this bot.")
+        return
+    args = message.get_args()
+    if not args:
+        await message.reply("Usage: /pak <number>")
+        return
+    number = clean_number(args)
+    await process_pak_number_lookup(message, number)
+
+@dp.message_handler(commands=['aadhar'])
+async def cmd_aadhar_lookup(message: types.Message):
+    user_id = message.from_user.id
+    if get_user_data(user_id).get("banned", False):
+        await message.reply("🚫 You are banned from using this bot.")
+        return
+    args = message.get_args()
+    if not args:
+        await message.reply("Usage: /aadhar <aadhaar_number>")
+        return
+    aadhaar = args.strip()
+    await process_aadhar_lookup(message, aadhaar)
+
+@dp.message_handler(commands=['aadhar2fam'])
+async def cmd_aadhar_family_lookup(message: types.Message):
+    user_id = message.from_user.id
+    if get_user_data(user_id).get("banned", False):
+        await message.reply("🚫 You are banned from using this bot.")
+        return
+    args = message.get_args()
+    if not args:
+        await message.reply("Usage: /aadhar2fam <aadhaar_number>")
+        return
+    aadhaar = args.strip()
+    await process_aadhar_family_lookup(message, aadhaar)
+
+@dp.message_handler(commands=['upi'])
+async def cmd_upi_lookup(message: types.Message):
+    user_id = message.from_user.id
+    if get_user_data(user_id).get("banned", False):
+        await message.reply("🚫 You are banned from using this bot.")
+        return
+    args = message.get_args()
+    if not args:
+        await message.reply("Usage: /upi <upi_id>")
+        return
+    upi_id = args.strip()
+    await process_upi_lookup(message, upi_id)
+
+@dp.message_handler(commands=['ip'])
+async def cmd_ip_lookup(message: types.Message):
+    user_id = message.from_user.id
+    if get_user_data(user_id).get("banned", False):
+        await message.reply("🚫 You are banned from using this bot.")
+        return
+    args = message.get_args()
+    if not args:
+        await message.reply("Usage: /ip <ip_address>")
+        return
+    ip = args.strip()
+    await process_ip_lookup(message, ip)
+
+@dp.message_handler(commands=['tguser'])
+async def cmd_tguser_lookup(message: types.Message):
+    user_id = message.from_user.id
+    if get_user_data(user_id).get("banned", False):
+        await message.reply("🚫 You are banned from using this bot.")
+        return
+    args = message.get_args()
+    if not args or not args.isdigit():
+        await message.reply("Usage: /tguser <telegram_user_id>")
+        return
+    tg_user_id = args.strip()
+    await process_tguser_lookup(message, tg_user_id)
+
+# ----------------------------
+# LOOKUP PROCESSING FUNCTIONS
+# ----------------------------
+
+async def process_upi_lookup(message: Message, upi_id: str):
+    url = API_URLS['upi'].format(upi_id=upi_id)
+    async with aiohttp.ClientSession() as session:
+        data = await fetch_api_json(session, url)
+    if not data or 'bank_details_raw' not in data or 'vpa_details' not in data:
+        await message.reply("❌ No data found for this UPI ID.")
+        return
+
+    bank = data['bank_details_raw']
+    vpa = data['vpa_details']
+
+    text = (
+        "🏦 <b>UPI ID Information</b>\n\n"
+        f"<b>Bank Details:</b>\n"
+        f"ADDRESS: {bank.get('ADDRESS', 'N/A')}\n"
+        f"BANK: {bank.get('BANK', 'N/A')}\n"
+        f"BANKCODE: {bank.get('BANKCODE', 'N/A')}\n"
+        f"BRANCH: {bank.get('BRANCH', 'N/A')}\n"
+        f"CENTRE: {bank.get('CENTRE', 'N/A')}\n"
+        f"CITY: {bank.get('CITY', 'N/A')}\n"
+        f"DISTRICT: {bank.get('DISTRICT', 'N/A')}\n"
+        f"STATE: {bank.get('STATE', 'N/A')}\n"
+        f"IFSC: {bank.get('IFSC', 'N/A')}\n"
+        f"MICR: {bank.get('MICR', 'N/A')}\n"
+        f"IMPS: {'✅' if bank.get('IMPS') else '❌'}\n"
+        f"NEFT: {'✅' if bank.get('NEFT') else '❌'}\n"
+        f"RTGS: {'✅' if bank.get('RTGS') else '❌'}\n"
+        f"UPI: {'✅' if bank.get('UPI') else '❌'}\n"
+        f"SWIFT: {bank.get('SWIFT', 'N/A')}\n\n"
+        f"👤 <b>Account Holder:</b>\n"
+        f"IFSC: {vpa.get('ifsc', 'N/A')}\n"
+        f"NAME: {vpa.get('name', 'N/A')}\n"
+        f"VPA: {vpa.get('vpa', 'N/A')}\n\n"
+        + format_footer()
+    )
+    await message.reply(text, reply_markup=create_back_contact_keyboard())
+
+async def process_indian_number_lookup(message: Message, number: str):
+    if is_number_blacklisted(number):
+        await message.reply("🚫 This number is blacklisted and cannot be searched.")
+        return
+    url = API_URLS['num_to_info'].format(number=number)
+    async with aiohttp.ClientSession() as session:
+        data = await fetch_api_json(session, url)
+    if not data or 'data' not in data or not data['data']:
+        await message.reply("❌ No information found for this number.")
+        return
+    info = data['data'][0]
+    alt_mobile = info.get('alt', 'N/A')
+    text = (
+        "📱 <b>Indian Number Info</b>\n\n"
+        f"MOBILE: {info.get('mobile', 'N/A')}\n"
+        f"ALT MOBILE: {alt_mobile}\n"
+        f"NAME: {info.get('name', 'N/A')}\n"
+        f"FULL NAME: {info.get('fname', 'N/A')}\n"
+        f"ADDRESS: {info.get('address', 'N/A').replace('!', ', ')}\n"
+        f"CIRCLE: {info.get('circle', 'N/A')}\n"
+        f"ID: {info.get('id', 'N/A')}\n\n"
+        + format_footer()
+    )
+    await message.reply(text, reply_markup=create_back_contact_keyboard())
+
+async def process_ip_lookup(message: Message, ip: str):
+    url = API_URLS['ip_to_info'].format(ip=ip)
+    async with aiohttp.ClientSession() as session:
+        data = await fetch_api_json(session, url)
+    if not data or 'Country' not in data:
+        await message.reply("❌ No information found for this IP.")
+        return
+    text = (
+        "🗾 <b>IP Address Info</b>\n\n"
+        f"IP Valid: {'✅' if data.get('Country') else '❌'}\n"
+        f"Country: {data.get('Country', 'N/A')}\n"
+        f"Country Code: {data.get('CountryCode', 'N/A')}\n"
+        f"Region: {data.get('Region', 'N/A')}\n"
+        f"Region Name: {data.get('RegionName', 'N/A')}\n"
+        f"City: {data.get('City', 'N/A')}\n"
+        f"Zip: {data.get('Zip', 'N/A')}\n"
+        f"Latitude: {data.get('Lat', 'N/A')}\n"
+        f"Longitude: {data.get('Lon', 'N/A')}\n"
+        f"Timezone: {data.get('Timezone', 'N/A')}\n"
+        f"ISP: {data.get('ISP', 'N/A')}\n"
+        f"Organization: {data.get('Org', 'N/A')}\n"
+        f"AS: {data.get('AS', 'N/A')}\n\n"
+        + format_footer()
+    )
+    await message.reply(text, reply_markup=create_back_contact_keyboard())
+
+async def process_pak_number_lookup(message: Message, number: str):
+    url = API_URLS['pak_num_to_cnic'].format(number=number)
+    async with aiohttp.ClientSession() as session:
+        data = await fetch_api_json(session, url)
+    if not data or 'results' not in data or not data['results']:
+        await message.reply("❌ No information found for this Pakistan number.")
+        return
+    results = data['results']
+    text = "🇵🇰 <b>Pakistan Number Info</b>\n\n"
+    for idx, res in enumerate(results, 1):
+        addr = res.get("Address", "(Not Available)")
+        text += (f"{idx}️⃣\n"
+                 f"NAME: {res.get('Name', 'N/A')}\n"
+                 f"CNIC: {res.get('CNIC', 'N/A')}\n"
+                 f"MOBILE: {res.get('Mobile', 'N/A')}\n"
+                 f"ADDRESS: {addr}\n\n")
+    text += format_footer()
+    await message.reply(text, reply_markup=create_back_contact_keyboard())
+
+async def process_aadhar_lookup(message: Message, aadhaar: str):
+    url = API_URLS['aadhar_to_details'].format(aadhaar=aadhaar)
+    async with aiohttp.ClientSession() as session:
+        data = await fetch_api_json(session, url)
+    if not data or 'data' not in data or not data['data']:
+        await message.reply("❌ No information found for this Aadhar number.")
+        return
+    info = data['data'][0]
+    alt_mobile = info.get('alt_mobile', 'N/A')
+    text = (
+        "🆔 <b>Aadhar Number Info</b>\n\n"
+        f"MOBILE: {info.get('mobile', 'N/A')}\n"
+        f"NAME: {info.get('name', 'N/A')}\n"
+        f"FATHER'S NAME: {info.get('father_name', 'N/A')}\n"
+        f"ADDRESS: {info.get('address', 'N/A').replace('!', ', ')}\n"
+        f"ALT MOBILE: {alt_mobile}\n"
+        f"CIRCLE: {info.get('circle', 'N/A')}\n"
+        f"ID NUMBER: {info.get('id_number', 'N/A')}\n"
+        f"EMAIL: {info.get('email', 'N/A')}\n\n"
+        + format_footer()
+    )
+    await message.reply(text, reply_markup=create_back_contact_keyboard())
+
+async def process_aadhar_family_lookup(message: Message, aadhaar: str):
+    url = API_URLS['aadhar_to_family'].format(aadhaar=aadhaar)
+    async with aiohttp.ClientSession() as session:
+        data = await fetch_api_json(session, url)
+    if not data or 'memberDetailsList' not in data:
+        await message.reply("❌ No family information found for this Aadhar number.")
+        return
+    fam = data
+    members = fam.get("memberDetailsList", [])
+    text = (
+        "🆔 <b>Aadhar Family Info</b>\n\n"
+        f"RC ID: {fam.get('rcId', 'N/A')}\n"
+        f"SCHEME: {fam.get('schemeName', 'N/A')} ({fam.get('schemeId', 'N/A')})\n"
+        f"DISTRICT: {fam.get('homeDistName', 'N/A')}\n"
+        f"STATE: {fam.get('homeStateName', 'N/A')}\n"
+        f"FPS ID: {fam.get('fpsId', 'N/A')}\n\n"
+        f"👨‍👩‍👧 <b>Family Members:</b>\n"
+    )
+    for idx, mem in enumerate(members, 1):
+        text += f"{idx}️⃣ {mem.get('memberName', 'N/A')} — {mem.get('releationship_name', 'N/A')}\n"
+    text += "\n" + format_footer()
+    await message.reply(text, reply_markup=create_back_contact_keyboard())
+
+async def process_tguser_lookup(message: Message, tg_user_id: str):
+    url = API_URLS['tg_user_stats'].format(user=tg_user_id)
+    async with aiohttp.ClientSession() as session:
+        data = await fetch_api_json(session, url)
+    if not data or not data.get("success") or not data.get("data"):
+        await message.reply("❌ No Telegram user stats found for this user ID.")
+        return
+    d = data["data"]
+    last_msg_date = d.get("last_msg_date")
+    first_msg_date = d.get("first_msg_date")
+    last_msg_date_str = last_msg_date.replace("T", " ").replace("Z", "") if last_msg_date else "N/A"
+    first_msg_date_str = first_msg_date.replace("T", " ").replace("Z", "") if first_msg_date else "N/A"
+    text = (
+        "👤 <b>Telegram User Stats</b>\n\n"
+        f"NAME: {d.get('first_name', '')} {d.get('last_name', '')}\n"
+        f"USER ID: {d.get('id', 'N/A')}\n"
+        f"IS BOT: {'✅' if d.get('is_bot') else '❌'}\n"
+        f"ACTIVE: {'✅' if d.get('is_active') else '❌'}\n\n"
+        f"📊 <b>Stats</b>\n"
+        f"TOTAL GROUPS: {d.get('total_groups', 0)}\n"
+        f"ADMIN IN GROUPS: {d.get('adm_in_groups', 0)}\n"
+        f"TOTAL MESSAGES: {d.get('total_msg_count', 0)}\n"
+        f"MESSAGES IN GROUPS: {d.get('msg_in_groups_count', 0)}\n"
+        f"🕐 FIRST MSG DATE: {first_msg_date_str}\n"
+        f"🕐 LAST MSG DATE: {last_msg_date_str}\n"
+        f"NAME CHANGES: {d.get('names_count', 0)}\n"
+        f"USERNAME CHANGES: {d.get('usernames_count', 0)}\n\n"
+        + format_footer()
+    )
+    await message.reply(text, reply_markup=create_back_contact_keyboard())
+
+# ----------------------------
+# MISC HANDLERS
+# ----------------------------
+
+@dp.message_handler(content_types=types.ContentTypes.TEXT)
+async def text_handler(message: types.Message):
+    user_id = message.from_user.id
+    # Only respond in groups if mentioned, command, or number in message
+    if message.chat.type in [ChatType.GROUP, ChatType.SUPERGROUP]:
+        bot_username = (await bot.get_me()).username.lower()
+        mentioned = f"@{bot_username}" in (message.text or "").lower()
+        is_cmd = bool(message.entities and message.entities[0].type == "bot_command")
+        has_number = bool(re.search(r"\+?\d{7,15}", message.text or ""))
+        if not (mentioned or is_cmd or has_number):
+            return  # Do not respond to normal messages in groups
+
+    # Attempt lookup by number or UPI ID
+    text = message.text.strip()
+
+    # First check if blacklisted number
+    cleaned = clean_number(text)
+    if is_number_blacklisted(cleaned):
+        await message.reply("🚫 This number is blacklisted and cannot be searched.")
+        return
+
+    # Determine lookup type by input pattern
+    if "@" in text and not text.startswith("/"):
+        # Possibly UPI ID
+        await process_upi_lookup(message, text)
+        return
+    elif re.match(r"^\+?(\d{7,15})$", text):
+        # Number lookup
+        if cleaned.startswith("+92"):
+            await process_pak_number_lookup(message, cleaned)
+        else:
+            await process_indian_number_lookup(message, cleaned)
+        return
+    else:
+        # Unknown input, ignore or suggest help
+        await message.reply("❓ Unknown input. Use /help to see commands and usage.")
+
+# ----------------------------
+# RUN BOT
+# ----------------------------
+
+if __name__ == '__main__':
+    print("Starting DataTrace OSINT Bot...")
+    executor.start_polling(dp, skip_updates=True)
