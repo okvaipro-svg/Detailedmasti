@@ -147,7 +147,7 @@ def init_db():
 def generate_referral_code(length=8):
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
 
-def is_user_member(context: CallbackContext, user_id: int) -> bool:
+def is_user_member(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> bool:
     bot = context.bot
     for channel in REQUIRED_CHANNELS:
         try:
