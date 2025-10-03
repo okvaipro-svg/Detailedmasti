@@ -24,7 +24,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Bot token
-TOKEN = os.environ.get("TOKEN", "8219144171:AAH3HZPZvvtohlxOkTP2jJVDuEAaAllyzdU)
+TOKEN = os.environ.get("TOKEN", "8219144171:AAH3HZPZvvtohlxOkTP2jJVDuEAaAllyzdU")
 
 # Owner and sudo IDs
 OWNER_ID = 7924074157
