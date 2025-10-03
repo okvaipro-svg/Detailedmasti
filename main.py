@@ -3,6 +3,7 @@ import os
 import json
 import requests
 import sqlite3
+import asyncio
 import random
 import string
 from datetime import datetime
@@ -2104,16 +2105,13 @@ def group_message_handler(update: Update, context: CallbackContext):
 def error_handler(update: Update, context: CallbackContext):
     logger.error(f"Update {update} caused error {context.error}")
 
-def main():
+async def main():
     # Initialize database
     init_db()
-    
-    # Create the Updater and pass it your bot's token.
-    updater = Updater(TOKEN)
-    
-    # Get the dispatcher to register handlers
-    dispatcher = updater.dispatcher
-    
+
+    # Create the Application and pass it your bot's token.
+    application = ApplicationBuilder().token(TOKEN).build()
+
     # Set bot commands
     commands = [
         BotCommand("start", "Start the bot"),
@@ -2139,51 +2137,44 @@ def main():
         BotCommand("unprotect", "Unprotect a number (Owner)"),
         BotCommand("blacklist", "Blacklist a number (Admin)"),
         BotCommand("unblacklist", "Unblacklist a number (Admin)")
-    ]
-    updater.bot.set_my_commands(commands)
+        # ... [all your commands as before]
     
-    # Register command handlers
-    dispatcher.add_handler(CommandHandler("start", start))
-    dispatcher.add_handler(CommandHandler("help", help_command))
-    dispatcher.add_handler(CommandHandler("credits", credits_command))
-    dispatcher.add_handler(CommandHandler("refer", refer_command))
-    dispatcher.add_handler(CommandHandler("buy", buy_command))
-    dispatcher.add_handler(CommandHandler("upi", upi_handler))
-    dispatcher.add_handler(CommandHandler("num", num_handler))
-    dispatcher.add_handler(CommandHandler("tg", tg_handler))
-    dispatcher.add_handler(CommandHandler("ip", ip_handler))
-    dispatcher.add_handler(CommandHandler("pak", pak_handler))
-    dispatcher.add_handler(CommandHandler("aadhar", aadhar_handler))
-    dispatcher.add_handler(CommandHandler("family", family_handler))
-    dispatcher.add_handler(CommandHandler("call", call_handler))
+    await application.bot.set_my_commands(commands)
+
+    # Register command handlers (update all handlers to async and use new API)
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("credits", credits_command))
+    application.add_handler(CommandHandler("refer", refer_command))
+    application.add_handler(CommandHandler("buy", buy_command))
+    application.add_handler(CommandHandler("upi", upi_handler))
+    application.add_handler(CommandHandler("num", num_handler))
+    application.add_handler(CommandHandler("tg", tg_handler))
+    application.add_handler(CommandHandler("ip", ip_handler))
+    application.add_handler(CommandHandler("pak", pak_handler))
+    application.add_handler(CommandHandler("aadhar", aadhar_handler))
+    application.add_handler(CommandHandler("family", family_handler))
+    application.add_handler(CommandHandler("call", call_handler))
     
     # Admin commands
-    dispatcher.add_handler(CommandHandler("admin", admin_command))
-    dispatcher.add_handler(CommandHandler("addcredits", addcredits_command))
-    dispatcher.add_handler(CommandHandler("ban", ban_command))
-    dispatcher.add_handler(CommandHandler("unban", unban_command))
-    dispatcher.add_handler(CommandHandler("stats", stats_command))
-    dispatcher.add_handler(CommandHandler("gcast", gcast_command))
-    dispatcher.add_handler(CommandHandler("protect", protect_command))
-    dispatcher.add_handler(CommandHandler("unprotect", unprotect_command))
-    dispatcher.add_handler(CommandHandler("blacklist", blacklist_command))
-    dispatcher.add_handler(CommandHandler("unblacklist", unblacklist_command))
-    
-    # Register callback query handler
-    dispatcher.add_handler(CallbackQueryHandler(button_callback))
-    
-    # Register message handlers
-    dispatcher.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
-    dispatcher.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.GROUPS, group_message_handler))
-    
-    # Register error handler
-    dispatcher.add_error_handler(error_handler)
-    
-    # Start the Bot
-    updater.start_polling()
-    
-    # Run the bot until you press Ctrl-C
-    updater.idle()
+    application.add_handler(CommandHandler("admin", admin_command))
+    application.add_handler(CommandHandler("addcredits", addcredits_command))
+    application.add_handler(CommandHandler("ban", ban_command))
+    application.add_handler(CommandHandler("unban", unban_command))
+    application.add_handler(CommandHandler("stats", stats_command))
+    application.add_handler(CommandHandler("gcast", gcast_command))
+    application.add_handler(CommandHandler("protect", protect_command))
+    application.add_handler(CommandHandler("unprotect", unprotect_command))
+    application.add_handler(CommandHandler("blacklist", blacklist_command))
+    application.add_handler(CommandHandler("unblacklist", unblacklist_command))
+    application.add_handler(CallbackQueryHandler(button_callback))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.GROUPS, group_message_handler))
 
-if __name__ == '__main__':
-    main()
+    application.add_error_handler(error_handler)
+
+    # Start the Bot (async run_polling)
+    await application.run_polling()
+
+if __name__ == '__main__':    
+    asyncio.run(main())   
