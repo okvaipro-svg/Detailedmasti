@@ -1,0 +1,20 @@
+TOKEN = "YOUR_BOT_TOKEN"  # <-- Replace with your bot token
+LOG_CHANNEL = -1003066524164
+START_CHANNEL = -1002765060940
+REQUIRED_CHANNELS = [
+    "DataTraceUpdates",
+    "DataTraceOSINTSupport"
+]
+ADMIN_CONTACT = "@DatatraceSupport"
+OWNER_ID = 7924074157
+SUDO_IDS = [7924074157, 5294360309, 7905267752]
+BLACKLIST_NUMBERS = ["+917724814462"]
+PROTECTED_NUMBERS = ["+917724814462"]  # Example, can add more
+CREDIT_PRICES = [
+    (100, 30, 0.25),
+    (200, 60, 0.5),
+    (500, 120, 1.0),
+    (1000, 200, 1.8),
+    (2000, 400, 3.5),
+    (5000, 1000, 8.5)
+]
