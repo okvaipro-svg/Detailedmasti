@@ -24,7 +24,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Bot configuration
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"  # Replace with your bot token
+BOT_TOKEN = "8219144171:AAH3HZPZvvtohlxOkTP2jJVDuEAaAllyzdU"  # Replace with your bot token
 OWNER_ID = 7924074157
 SUDO_USERS = [7924074157, 5294360309, 7905267752]
 LOG_CHANNEL_START = -1002765060940
