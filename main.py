@@ -11,10 +11,10 @@ from telegram.ext import (
     Updater,
     CommandHandler,
     MessageHandler,
-    Filters,
     CallbackQueryHandler,
     ConversationHandler,
     CallbackContext,
+    filters,
 )
 
 # Enable logging
@@ -24,7 +24,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Bot token
-TOKEN = os.environ.get("TOKEN", "8219144171:AAH3HZPZvvtohlxOkTP2jJVDuEAaAllyzdU")
+TOKEN = os.environ.get("TOKEN", "YOUR_BOT_TOKEN_HERE")
 
 # Owner and sudo IDs
 OWNER_ID = 7924074157
@@ -2173,8 +2173,8 @@ def main():
     dispatcher.add_handler(CallbackQueryHandler(button_callback))
     
     # Register message handlers
-    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, message_handler))
-    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command & Filters.group, group_message_handler))
+    dispatcher.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
+    dispatcher.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.GROUPS, group_message_handler))
     
     # Register error handler
     dispatcher.add_error_handler(error_handler)
