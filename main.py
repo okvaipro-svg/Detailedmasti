@@ -2035,8 +2035,8 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Handle as UPI ID
         context.args = [message_text]
         await upi_handler(update, context)
-    # Check if it's an IP address
-        elif "." in message_text and all(part.isdigit() for part in message_text.split(".")):
+    # Check if it's an IP address.         
+    elif "." in message_text and all(part.isdigit() for part in message_text.split(".")):
         # Handle as IP address
         context.args = [message_text]
         await ip_handler(update, context)
