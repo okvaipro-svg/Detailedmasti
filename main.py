@@ -2036,11 +2036,10 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.args = [message_text]
         await upi_handler(update, context)
     # Check if it's an IP address
-    elif "." in message_text and all(part.isdigit() for part in message_text.split(".")):
+        elif "." in message_text and all(part.isdigit() for part in message_text.split(".")):
         # Handle as IP address
         context.args = [message_text]
-                await ip_handler(update, context)
-    else:
+        await ip_handler(update, context)
         # Unknown message type
         await update.message.reply_text(
             "❌ I don't understand this message.\n\n"
