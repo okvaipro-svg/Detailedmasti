@@ -50,7 +50,7 @@ from telegram.ext import (
 # Configuration (edit safely)
 # ----------------------------
 DB_PATH = os.getenv("DB_PATH", "datatrace.db")
-BOT_TOKEN = os.getenv("BOT_TOKEN")  # must be set in environment
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8219144171:AAH3HZPZvvtohlxOkTP2jJVDuEAaAllyzdU")  # must be set in environment
 if not BOT_TOKEN:
     raise SystemExit("BOT_TOKEN environment variable not set. Set it and re-run.")
 
