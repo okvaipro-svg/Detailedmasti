@@ -4,23 +4,26 @@ def init_db():
     conn = sqlite3.connect("bot.db")
     c = conn.cursor()
     c.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            credits INTEGER DEFAULT 2,
-            referrals INTEGER DEFAULT 0,
-            protected INTEGER DEFAULT 0,
-            banned INTEGER DEFAULT 0,
-            ref_by INTEGER DEFAULT NULL
-        )
+    CREATE TABLE IF NOT EXISTS users (
+        user_id INTEGER PRIMARY KEY,
+        credits INTEGER DEFAULT 2,
+        referrals INTEGER DEFAULT 0,
+        protected INTEGER DEFAULT 0,
+        banned INTEGER DEFAULT 0,
+        ref_by INTEGER DEFAULT NULL,
+        is_sudo INTEGER DEFAULT 0,
+        is_owner INTEGER DEFAULT 0,
+        free_searches INTEGER DEFAULT 2
+    )
     """)
     c.execute("""
-        CREATE TABLE IF NOT EXISTS logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            query TEXT,
-            result TEXT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
+    CREATE TABLE IF NOT EXISTS logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        query TEXT,
+        result TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
     """)
     conn.commit()
     conn.close()
@@ -89,7 +92,7 @@ def get_referrals(user_id):
 def get_sudo_list():
     conn = sqlite3.connect("bot.db")
     c = conn.cursor()
-    c.execute("SELECT user_id FROM users WHERE user_id IN (7924074157,5294360309,7905267752)")
+    c.execute("SELECT user_id FROM users WHERE is_sudo = 1 OR user_id IN (7924074157,5294360309,7905267752)")
     lst = c.fetchall()
     conn.close()
     return [x[0] for x in lst]
@@ -112,3 +115,18 @@ def get_all_users():
     users = c.fetchall()
     conn.close()
     return [x[0] for x in users]
+
+def get_free_searches(user_id):
+    conn = sqlite3.connect("bot.db")
+    c = conn.cursor()
+    c.execute("SELECT free_searches FROM users WHERE user_id = ?", (user_id,))
+    fs = c.fetchone()
+    conn.close()
+    return fs[0] if fs else 0
+
+def update_free_searches(user_id, delta):
+    conn = sqlite3.connect("bot.db")
+    c = conn.cursor()
+    c.execute("UPDATE users SET free_searches = free_searches + ? WHERE user_id = ?", (delta, user_id))
+    conn.commit()
+    conn.close()
