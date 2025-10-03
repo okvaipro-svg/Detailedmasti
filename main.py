@@ -1224,9 +1224,46 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     logger.error("Exception while handling an update: %s", context.error)
 
 # --- Main function with new structure ---
+# ... (keep all the code above this point the same) ...
+
+# --- New post_init function for async setup ---
+async def post_init(application: Application) -> None:
+    """
+    Post-initialization function to set bot commands.
+    This is the recommended way to run async setup code.
+    """
+    commands = [
+        BotCommand("start", "Start the bot"),
+        BotCommand("num", "Get number information"),
+        BotCommand("pak", "Get Pakistan number information"),
+        BotCommand("aadhar", "Get Aadhaar details"),
+        BotCommand("aadhar2fam", "Get Aadhaar family information"),
+        BotCommand("upi", "Get UPI information"),
+        BotCommand("ip", "Get IP details"),
+        BotCommand("stats", "Get Telegram user stats"),
+        BotCommand("call", "Get call history (Paid)"),
+        BotCommand("balance", "Check your credit balance"),
+        BotCommand("referral", "Get your referral link"),
+        BotCommand("protect", "Protect your data"),
+        BotCommand("admin", "Contact admin"),
+        BotCommand("help", "Show help"),
+        BotCommand("buy", "Buy credits"),
+        BotCommand("buydb", "Buy database"),
+        BotCommand("buyapi", "Buy API access")
+    ]
+    await application.bot.set_my_commands(commands)
+
+
+# --- Corrected main function ---
 def main():
     """Start the bot."""
-    application = Application.builder().token(BOT_TOKEN).build()
+    # Build the application and register the post_init handler
+    application = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .post_init(post_init)  # <-- This is the key change
+        .build()
+    )
     
     # --- Add handlers to the application ---
     application.add_handler(CommandHandler("start", start))
@@ -1268,34 +1305,10 @@ def main():
     # Error handler
     application.add_error_handler(error_handler)
     
-    # Set bot commands
-    commands = [
-        BotCommand("start", "Start the bot"),
-        BotCommand("num", "Get number information"),
-        BotCommand("pak", "Get Pakistan number information"),
-        BotCommand("aadhar", "Get Aadhaar details"),
-        BotCommand("aadhar2fam", "Get Aadhaar family information"),
-        BotCommand("upi", "Get UPI information"),
-        BotCommand("ip", "Get IP details"),
-        BotCommand("stats", "Get Telegram user stats"),
-        BotCommand("call", "Get call history (Paid)"),
-        BotCommand("balance", "Check your credit balance"),
-        BotCommand("referral", "Get your referral link"),
-        BotCommand("protect", "Protect your data"),
-        BotCommand("admin", "Contact admin"),
-        BotCommand("help", "Show help"),
-        BotCommand("buy", "Buy credits"),
-        BotCommand("buydb", "Buy database"),
-        BotCommand("buyapi", "Buy API access")
-    ]
-    
-    try:
-        await application.bot.set_my_commands(commands)
-    except Exception as e:
-        logger.error(f"Failed to set bot commands: {e}")
-    
     # --- Start the Bot ---
+    # This is a synchronous call that starts the async event loop
     application.run_polling()
+
 
 if __name__ == '__main__':
     main()
