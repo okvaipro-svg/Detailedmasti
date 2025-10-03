@@ -6,18 +6,17 @@ import sqlite3
 import random
 import string
 from datetime import datetime
-
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, BotCommand
 from telegram.ext import (
-    ApplicationBuilder,
+    Application,
     CommandHandler,
     MessageHandler,
     CallbackQueryHandler,
     ConversationHandler,
-    ContextTypes,
+    CallbackContext,
     filters,
+    ContextTypes,
 )
-
 
 # Enable logging
 logging.basicConfig(
@@ -26,7 +25,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Bot token
-TOKEN = os.environ.get("TOKEN", "8219144171:AAH3HZPZvvtohlxOkTP2jJVDuEAaAllyzdU")
+TOKEN = os.environ.get("TOKEN", "YOUR_BOT_TOKEN_HERE")
 
 # Owner and sudo IDs
 OWNER_ID = 7924074157
@@ -159,7 +158,7 @@ def is_user_member(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> bool:
             return False
     return True
 
-def check_membership(update: Update, context: CallbackContext) -> bool:
+def check_membership(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     user_id = update.effective_user.id
     if not is_user_member(context, user_id):
         keyboard = []
@@ -210,7 +209,7 @@ def log_search(user_id: int, search_type: str, query: str, result_count: int):
     conn.commit()
     conn.close()
 
-def log_to_channel(context: CallbackContext, channel_id: int, message: str):
+def log_to_channel(context: ContextTypes.DEFAULT_TYPE, channel_id: int, message: str):
     try:
         context.bot.send_message(chat_id=channel_id, text=message, parse_mode="Markdown")
     except Exception as e:
@@ -234,7 +233,7 @@ def is_owner(user_id: int) -> bool:
     return user_id == OWNER_ID
 
 # Command handlers
-def start(update: Update, context: CallbackContext):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = user.id
     
@@ -313,7 +312,7 @@ def start(update: Update, context: CallbackContext):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    update.message.reply_text(
+    await update.message.reply_text(
         f"👋 *Welcome to DataTrace OSINT Bot, {user.first_name}!*\n\n"
         f"🔍 *Your Credits:* {credits}\n\n"
         f"📋 *Features:*\n"
@@ -331,7 +330,7 @@ def start(update: Update, context: CallbackContext):
         parse_mode="Markdown"
     )
 
-def help_command(update: Update, context: CallbackContext):
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     # Check if user is member of required channels
@@ -376,9 +375,9 @@ def help_command(update: Update, context: CallbackContext):
     help_text += "🤝 *Referral Program:*\n"
     help_text += "Share your referral link and earn 30% commission when your referrals buy credits!"
     
-    update.message.reply_text(help_text, parse_mode="Markdown")
+    await update.message.reply_text(help_text, parse_mode="Markdown")
 
-def credits_command(update: Update, context: CallbackContext):
+async def credits_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     # Check if user is member of required channels
@@ -413,7 +412,7 @@ def credits_command(update: Update, context: CallbackContext):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    update.message.reply_text(
+    await update.message.reply_text(
         f"💳 *Your Credits: {credits}*\n\n"
         f"👥 *Referral Stats:*\n"
         f"• Referrals: {referral_count}\n"
@@ -423,7 +422,7 @@ def credits_command(update: Update, context: CallbackContext):
         parse_mode="Markdown"
     )
 
-def refer_command(update: Update, context: CallbackContext):
+async def refer_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     # Check if user is member of required channels
@@ -445,7 +444,7 @@ def refer_command(update: Update, context: CallbackContext):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    update.message.reply_text(
+    await update.message.reply_text(
         f"🤝 *Referral Program*\n\n"
         f"Share your referral link and earn rewards!\n\n"
         f"🔗 *Your Referral Link:*\n{referral_link}\n\n"
@@ -461,7 +460,7 @@ def refer_command(update: Update, context: CallbackContext):
         parse_mode="Markdown"
     )
 
-def buy_command(update: Update, context: CallbackContext):
+async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     # Check if user is member of required channels
@@ -484,7 +483,7 @@ def buy_command(update: Update, context: CallbackContext):
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    update.message.reply_text(
+    await update.message.reply_text(
         "💳 *Buy Credits*\n\n"
         "Choose a credit package below:\n\n"
         "💰 *Payment Methods:*\n"
@@ -497,7 +496,7 @@ def buy_command(update: Update, context: CallbackContext):
     )
 
 # API handlers
-def upi_handler(update: Update, context: CallbackContext):
+async def upi_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     # Check if user is member of required channels
@@ -513,7 +512,7 @@ def upi_handler(update: Update, context: CallbackContext):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        update.message.reply_text(
+        await update.message.reply_text(
             "❌ *Insufficient Credits*\n\n"
             "You don't have enough credits to use this feature.\n\n"
             "Choose an option below to get more credits:",
@@ -526,11 +525,11 @@ def upi_handler(update: Update, context: CallbackContext):
     if context.args:
         upi_id = context.args[0]
     else:
-        update.message.reply_text("❌ Please provide a UPI ID.\n\nUsage: `/upi example@upi`", parse_mode="Markdown")
+        await update.message.reply_text("❌ Please provide a UPI ID.\n\nUsage: `/upi example@upi`", parse_mode="Markdown")
         return
     
     # Send typing action
-    context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
     
     try:
         # Call API
@@ -578,14 +577,14 @@ def upi_handler(update: Update, context: CallbackContext):
             log_message += f"📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
             log_to_channel(context, SEARCH_LOG_CHANNEL, log_message)
             
-            update.message.reply_text(result_text, parse_mode="Markdown")
+            await update.message.reply_text(result_text, parse_mode="Markdown")
         else:
-            update.message.reply_text("❌ No information found for this UPI ID.", parse_mode="Markdown")
+            await update.message.reply_text("❌ No information found for this UPI ID.", parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error in UPI lookup: {e}")
-        update.message.reply_text("❌ An error occurred while fetching UPI information. Please try again later.", parse_mode="Markdown")
+        await update.message.reply_text("❌ An error occurred while fetching UPI information. Please try again later.", parse_mode="Markdown")
 
-def num_handler(update: Update, context: CallbackContext):
+async def num_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     # Check if user is member of required channels
@@ -601,7 +600,7 @@ def num_handler(update: Update, context: CallbackContext):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        update.message.reply_text(
+        await update.message.reply_text(
             "❌ *Insufficient Credits*\n\n"
             "You don't have enough credits to use this feature.\n\n"
             "Choose an option below to get more credits:",
@@ -620,21 +619,21 @@ def num_handler(update: Update, context: CallbackContext):
         elif number.startswith("+92"):
             number = number[3:]
     else:
-        update.message.reply_text("❌ Please provide a phone number.\n\nUsage: `/num 9876543210`", parse_mode="Markdown")
+        await update.message.reply_text("❌ Please provide a phone number.\n\nUsage: `/num 9876543210`", parse_mode="Markdown")
         return
     
     # Check if number is blacklisted
     if is_blacklisted_number(number):
-        update.message.reply_text("❌ This number is blacklisted and cannot be searched.", parse_mode="Markdown")
+        await update.message.reply_text("❌ This number is blacklisted and cannot be searched.", parse_mode="Markdown")
         return
     
     # Check if number is protected (only owner can check)
     if is_protected_number(number) and not is_owner(user_id):
-        update.message.reply_text("❌ This number is protected and cannot be searched.", parse_mode="Markdown")
+        await update.message.reply_text("❌ This number is protected and cannot be searched.", parse_mode="Markdown")
         return
     
     # Send typing action
-    context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
     
     try:
         # Call API
@@ -671,14 +670,14 @@ def num_handler(update: Update, context: CallbackContext):
             log_message += f"📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
             log_to_channel(context, SEARCH_LOG_CHANNEL, log_message)
             
-            update.message.reply_text(result_text, parse_mode="Markdown")
+            await update.message.reply_text(result_text, parse_mode="Markdown")
         else:
-            update.message.reply_text("❌ No information found for this number.", parse_mode="Markdown")
+            await update.message.reply_text("❌ No information found for this number.", parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error in number lookup: {e}")
-        update.message.reply_text("❌ An error occurred while fetching number information. Please try again later.", parse_mode="Markdown")
+        await update.message.reply_text("❌ An error occurred while fetching number information. Please try again later.", parse_mode="Markdown")
 
-def tg_handler(update: Update, context: CallbackContext):
+async def tg_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     # Check if user is member of required channels
@@ -694,7 +693,7 @@ def tg_handler(update: Update, context: CallbackContext):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        update.message.reply_text(
+        await update.message.reply_text(
             "❌ *Insufficient Credits*\n\n"
             "You don't have enough credits to use this feature.\n\n"
             "Choose an option below to get more credits:",
@@ -707,11 +706,11 @@ def tg_handler(update: Update, context: CallbackContext):
     if context.args:
         tg_user_id = context.args[0]
     else:
-        update.message.reply_text("❌ Please provide a Telegram user ID.\n\nUsage: `/tg 123456789`", parse_mode="Markdown")
+        await update.message.reply_text("❌ Please provide a Telegram user ID.\n\nUsage: `/tg 123456789`", parse_mode="Markdown")
         return
     
     # Send typing action
-    context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
     
     try:
         # Call API
@@ -759,14 +758,14 @@ def tg_handler(update: Update, context: CallbackContext):
             log_message += f"📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
             log_to_channel(context, SEARCH_LOG_CHANNEL, log_message)
             
-            update.message.reply_text(result_text, parse_mode="Markdown")
+            await update.message.reply_text(result_text, parse_mode="Markdown")
         else:
-            update.message.reply_text("❌ No information found for this Telegram user.", parse_mode="Markdown")
+            await update.message.reply_text("❌ No information found for this Telegram user.", parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error in Telegram user lookup: {e}")
-        update.message.reply_text("❌ An error occurred while fetching Telegram user information. Please try again later.", parse_mode="Markdown")
+        await update.message.reply_text("❌ An error occurred while fetching Telegram user information. Please try again later.", parse_mode="Markdown")
 
-def ip_handler(update: Update, context: CallbackContext):
+async def ip_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     # Check if user is member of required channels
@@ -782,7 +781,7 @@ def ip_handler(update: Update, context: CallbackContext):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        update.message.reply_text(
+        await update.message.reply_text(
             "❌ *Insufficient Credits*\n\n"
             "You don't have enough credits to use this feature.\n\n"
             "Choose an option below to get more credits:",
@@ -795,11 +794,11 @@ def ip_handler(update: Update, context: CallbackContext):
     if context.args:
         ip = context.args[0]
     else:
-        update.message.reply_text("❌ Please provide an IP address.\n\nUsage: `/ip 8.8.8.8`", parse_mode="Markdown")
+        await update.message.reply_text("❌ Please provide an IP address.\n\nUsage: `/ip 8.8.8.8`", parse_mode="Markdown")
         return
     
     # Send typing action
-    context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
     
     try:
         # Call API
@@ -827,14 +826,14 @@ def ip_handler(update: Update, context: CallbackContext):
             log_message += f"📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
             log_to_channel(context, SEARCH_LOG_CHANNEL, log_message)
             
-            update.message.reply_text(result_text, parse_mode="Markdown")
+            await update.message.reply_text(result_text, parse_mode="Markdown")
         else:
-            update.message.reply_text("❌ No information found for this IP address.", parse_mode="Markdown")
+            await update.message.reply_text("❌ No information found for this IP address.", parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error in IP lookup: {e}")
-        update.message.reply_text("❌ An error occurred while fetching IP information. Please try again later.", parse_mode="Markdown")
+        await update.message.reply_text("❌ An error occurred while fetching IP information. Please try again later.", parse_mode="Markdown")
 
-def pak_handler(update: Update, context: CallbackContext):
+async def pak_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     # Check if user is member of required channels
@@ -850,7 +849,7 @@ def pak_handler(update: Update, context: CallbackContext):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        update.message.reply_text(
+        await update.message.reply_text(
             "❌ *Insufficient Credits*\n\n"
             "You don't have enough credits to use this feature.\n\n"
             "Choose an option below to get more credits:",
@@ -866,11 +865,11 @@ def pak_handler(update: Update, context: CallbackContext):
         if not number.startswith("+92"):
             number = "+92" + number
     else:
-        update.message.reply_text("❌ Please provide a Pakistan phone number.\n\nUsage: `/pak 3362006909`", parse_mode="Markdown")
+        await update.message.reply_text("❌ Please provide a Pakistan phone number.\n\nUsage: `/pak 3362006909`", parse_mode="Markdown")
         return
     
     # Send typing action
-    context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
     
     try:
         # Call API
@@ -907,14 +906,14 @@ def pak_handler(update: Update, context: CallbackContext):
             log_message += f"📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
             log_to_channel(context, SEARCH_LOG_CHANNEL, log_message)
             
-            update.message.reply_text(result_text, parse_mode="Markdown")
+            await update.message.reply_text(result_text, parse_mode="Markdown")
         else:
-            update.message.reply_text("❌ No information found for this Pakistan number.", parse_mode="Markdown")
+            await update.message.reply_text("❌ No information found for this Pakistan number.", parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error in Pakistan number lookup: {e}")
-        update.message.reply_text("❌ An error occurred while fetching Pakistan number information. Please try again later.", parse_mode="Markdown")
+        await update.message.reply_text("❌ An error occurred while fetching Pakistan number information. Please try again later.", parse_mode="Markdown")
 
-def aadhar_handler(update: Update, context: CallbackContext):
+async def aadhar_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     # Check if user is member of required channels
@@ -930,7 +929,7 @@ def aadhar_handler(update: Update, context: CallbackContext):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        update.message.reply_text(
+        await update.message.reply_text(
             "❌ *Insufficient Credits*\n\n"
             "You don't have enough credits to use this feature.\n\n"
             "Choose an option below to get more credits:",
@@ -943,11 +942,11 @@ def aadhar_handler(update: Update, context: CallbackContext):
     if context.args:
         aadhar = context.args[0]
     else:
-        update.message.reply_text("❌ Please provide an Aadhar number.\n\nUsage: `/aadhar 123456789012`", parse_mode="Markdown")
+        await update.message.reply_text("❌ Please provide an Aadhar number.\n\nUsage: `/aadhar 123456789012`", parse_mode="Markdown")
         return
     
     # Send typing action
-    context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
     
     try:
         # Call API
@@ -987,14 +986,14 @@ def aadhar_handler(update: Update, context: CallbackContext):
             log_message += f"📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
             log_to_channel(context, SEARCH_LOG_CHANNEL, log_message)
             
-            update.message.reply_text(result_text, parse_mode="Markdown")
+            await update.message.reply_text(result_text, parse_mode="Markdown")
         else:
-            update.message.reply_text("❌ No information found for this Aadhar number.", parse_mode="Markdown")
+            await update.message.reply_text("❌ No information found for this Aadhar number.", parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error in Aadhar lookup: {e}")
-        update.message.reply_text("❌ An error occurred while fetching Aadhar information. Please try again later.", parse_mode="Markdown")
+        await update.message.reply_text("❌ An error occurred while fetching Aadhar information. Please try again later.", parse_mode="Markdown")
 
-def family_handler(update: Update, context: CallbackContext):
+async def family_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     # Check if user is member of required channels
@@ -1010,7 +1009,7 @@ def family_handler(update: Update, context: CallbackContext):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        update.message.reply_text(
+        await update.message.reply_text(
             "❌ *Insufficient Credits*\n\n"
             "You don't have enough credits to use this feature.\n\n"
             "Choose an option below to get more credits:",
@@ -1023,11 +1022,11 @@ def family_handler(update: Update, context: CallbackContext):
     if context.args:
         aadhar = context.args[0]
     else:
-        update.message.reply_text("❌ Please provide an Aadhar number.\n\nUsage: `/family 123456789012`", parse_mode="Markdown")
+        await update.message.reply_text("❌ Please provide an Aadhar number.\n\nUsage: `/family 123456789012`", parse_mode="Markdown")
         return
     
     # Send typing action
-    context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
     
     try:
         # Call API
@@ -1066,14 +1065,14 @@ def family_handler(update: Update, context: CallbackContext):
             log_message += f"📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
             log_to_channel(context, SEARCH_LOG_CHANNEL, log_message)
             
-            update.message.reply_text(result_text, parse_mode="Markdown")
+            await update.message.reply_text(result_text, parse_mode="Markdown")
         else:
-            update.message.reply_text("❌ No information found for this Aadhar number.", parse_mode="Markdown")
+            await update.message.reply_text("❌ No information found for this Aadhar number.", parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error in Aadhar family lookup: {e}")
-        update.message.reply_text("❌ An error occurred while fetching Aadhar family information. Please try again later.", parse_mode="Markdown")
+        await update.message.reply_text("❌ An error occurred while fetching Aadhar family information. Please try again later.", parse_mode="Markdown")
 
-def call_handler(update: Update, context: CallbackContext):
+async def call_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     # Check if user is member of required channels
@@ -1089,7 +1088,7 @@ def call_handler(update: Update, context: CallbackContext):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        update.message.reply_text(
+        await update.message.reply_text(
             f"❌ *Insufficient Credits*\n\n"
             f"You need 600 credits to use this feature. You currently have {credits} credits.\n\n"
             f"Choose an option below to get more credits:",
@@ -1102,21 +1101,21 @@ def call_handler(update: Update, context: CallbackContext):
     if context.args:
         number = context.args[0]
     else:
-        update.message.reply_text("❌ Please provide a phone number.\n\nUsage: `/call 9876543210`", parse_mode="Markdown")
+        await update.message.reply_text("❌ Please provide a phone number.\n\nUsage: `/call 9876543210`", parse_mode="Markdown")
         return
     
     # Check if number is blacklisted
     if is_blacklisted_number(number):
-        update.message.reply_text("❌ This number is blacklisted and cannot be searched.", parse_mode="Markdown")
+        await update.message.reply_text("❌ This number is blacklisted and cannot be searched.", parse_mode="Markdown")
         return
     
     # Check if number is protected (only owner can check)
     if is_protected_number(number) and not is_owner(user_id):
-        update.message.reply_text("❌ This number is protected and cannot be searched.", parse_mode="Markdown")
+        await update.message.reply_text("❌ This number is protected and cannot be searched.", parse_mode="Markdown")
         return
     
     # Send typing action
-    context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
     
     try:
         # Call API
@@ -1155,19 +1154,19 @@ def call_handler(update: Update, context: CallbackContext):
             log_message += f"📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
             log_to_channel(context, SEARCH_LOG_CHANNEL, log_message)
             
-            update.message.reply_text(result_text, parse_mode="Markdown")
+            await update.message.reply_text(result_text, parse_mode="Markdown")
         else:
-            update.message.reply_text("❌ No information found for this number.", parse_mode="Markdown")
+            await update.message.reply_text("❌ No information found for this number.", parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error in call history lookup: {e}")
-        update.message.reply_text("❌ An error occurred while fetching call history. Please try again later.", parse_mode="Markdown")
+        await update.message.reply_text("❌ An error occurred while fetching call history. Please try again later.", parse_mode="Markdown")
 
 # Admin commands
-def admin_command(update: Update, context: CallbackContext):
+async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     if not is_sudo(user_id):
-        update.message.reply_text("❌ You don't have permission to use this command.", parse_mode="Markdown")
+        await update.message.reply_text("❌ You don't have permission to use this command.", parse_mode="Markdown")
         return
     
     keyboard = [
@@ -1181,22 +1180,22 @@ def admin_command(update: Update, context: CallbackContext):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    update.message.reply_text(
+    await update.message.reply_text(
         "🛠️ *Admin Panel*\n\n"
         "Choose an option below:",
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
 
-def addcredits_command(update: Update, context: CallbackContext):
+async def addcredits_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     if not is_sudo(user_id):
-        update.message.reply_text("❌ You don't have permission to use this command.", parse_mode="Markdown")
+        await update.message.reply_text("❌ You don't have permission to use this command.", parse_mode="Markdown")
         return
     
     if len(context.args) < 2:
-        update.message.reply_text("❌ Please provide a user ID and amount.\n\nUsage: `/addcredits 123456789 100`", parse_mode="Markdown")
+        await update.message.reply_text("❌ Please provide a user ID and amount.\n\nUsage: `/addcredits 123456789 100`", parse_mode="Markdown")
         return
     
     try:
@@ -1208,32 +1207,32 @@ def addcredits_command(update: Update, context: CallbackContext):
         
         # Get user info
         try:
-            user = context.bot.get_chat(target_user_id)
+            user = await context.bot.get_chat(target_user_id)
             user_info = f"{user.first_name} (@{user.username if user.username else 'N/A'})"
         except:
             user_info = f"User ID: {target_user_id}"
         
-        update.message.reply_text(
+        await update.message.reply_text(
             f"✅ *Credits Added*\n\n"
             f"User: {user_info}\n"
             f"Amount: {amount} credits",
             parse_mode="Markdown"
         )
     except ValueError:
-        update.message.reply_text("❌ Invalid input. Please provide a valid user ID and amount.", parse_mode="Markdown")
+        await update.message.reply_text("❌ Invalid input. Please provide a valid user ID and amount.", parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error in addcredits: {e}")
-        update.message.reply_text("❌ An error occurred while adding credits.", parse_mode="Markdown")
+        await update.message.reply_text("❌ An error occurred while adding credits.", parse_mode="Markdown")
 
-def ban_command(update: Update, context: CallbackContext):
+async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     if not is_sudo(user_id):
-        update.message.reply_text("❌ You don't have permission to use this command.", parse_mode="Markdown")
+        await update.message.reply_text("❌ You don't have permission to use this command.", parse_mode="Markdown")
         return
     
     if len(context.args) < 1:
-        update.message.reply_text("❌ Please provide a user ID.\n\nUsage: `/ban 123456789`", parse_mode="Markdown")
+        await update.message.reply_text("❌ Please provide a user ID.\n\nUsage: `/ban 123456789`", parse_mode="Markdown")
         return
     
     try:
@@ -1248,31 +1247,31 @@ def ban_command(update: Update, context: CallbackContext):
         
         # Get user info
         try:
-            user = context.bot.get_chat(target_user_id)
+            user = await context.bot.get_chat(target_user_id)
             user_info = f"{user.first_name} (@{user.username if user.username else 'N/A'})"
         except:
             user_info = f"User ID: {target_user_id}"
         
-        update.message.reply_text(
+        await update.message.reply_text(
             f"✅ *User Banned*\n\n"
             f"User: {user_info}",
             parse_mode="Markdown"
         )
     except ValueError:
-        update.message.reply_text("❌ Invalid input. Please provide a valid user ID.", parse_mode="Markdown")
+        await update.message.reply_text("❌ Invalid input. Please provide a valid user ID.", parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error in ban: {e}")
-        update.message.reply_text("❌ An error occurred while banning the user.", parse_mode="Markdown")
+        await update.message.reply_text("❌ An error occurred while banning the user.", parse_mode="Markdown")
 
-def unban_command(update: Update, context: CallbackContext):
+async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     if not is_sudo(user_id):
-        update.message.reply_text("❌ You don't have permission to use this command.", parse_mode="Markdown")
+        await update.message.reply_text("❌ You don't have permission to use this command.", parse_mode="Markdown")
         return
     
     if len(context.args) < 1:
-        update.message.reply_text("❌ Please provide a user ID.\n\nUsage: `/unban 123456789`", parse_mode="Markdown")
+        await update.message.reply_text("❌ Please provide a user ID.\n\nUsage: `/unban 123456789`", parse_mode="Markdown")
         return
     
     try:
@@ -1287,27 +1286,27 @@ def unban_command(update: Update, context: CallbackContext):
         
         # Get user info
         try:
-            user = context.bot.get_chat(target_user_id)
+            user = await context.bot.get_chat(target_user_id)
             user_info = f"{user.first_name} (@{user.username if user.username else 'N/A'})"
         except:
             user_info = f"User ID: {target_user_id}"
         
-        update.message.reply_text(
+        await update.message.reply_text(
             f"✅ *User Unbanned*\n\n"
             f"User: {user_info}",
             parse_mode="Markdown"
         )
     except ValueError:
-        update.message.reply_text("❌ Invalid input. Please provide a valid user ID.", parse_mode="Markdown")
+        await update.message.reply_text("❌ Invalid input. Please provide a valid user ID.", parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error in unban: {e}")
-        update.message.reply_text("❌ An error occurred while unbanning the user.", parse_mode="Markdown")
+        await update.message.reply_text("❌ An error occurred while unbanning the user.", parse_mode="Markdown")
 
-def stats_command(update: Update, context: CallbackContext):
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     if not is_sudo(user_id):
-        update.message.reply_text("❌ You don't have permission to use this command.", parse_mode="Markdown")
+        await update.message.reply_text("❌ You don't have permission to use this command.", parse_mode="Markdown")
         return
     
     try:
@@ -1358,20 +1357,20 @@ def stats_command(update: Update, context: CallbackContext):
         stats_text += f"• Credits Sold: {total_credits_sold}\n"
         stats_text += f"• Total Revenue: ₹{total_revenue:.2f}\n"
         
-        update.message.reply_text(stats_text, parse_mode="Markdown")
+        await update.message.reply_text(stats_text, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error in stats: {e}")
-        update.message.reply_text("❌ An error occurred while fetching statistics.", parse_mode="Markdown")
+        await update.message.reply_text("❌ An error occurred while fetching statistics.", parse_mode="Markdown")
 
-def gcast_command(update: Update, context: CallbackContext):
+async def gcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     if not is_sudo(user_id):
-        update.message.reply_text("❌ You don't have permission to use this command.", parse_mode="Markdown")
+        await update.message.reply_text("❌ You don't have permission to use this command.", parse_mode="Markdown")
         return
     
     if len(context.args) < 1:
-        update.message.reply_text("❌ Please provide a message to broadcast.\n\nUsage: `/gcast Your message here`", parse_mode="Markdown")
+        await update.message.reply_text("❌ Please provide a message to broadcast.\n\nUsage: `/gcast Your message here`", parse_mode="Markdown")
         return
     
     message = " ".join(context.args)
@@ -1388,12 +1387,12 @@ def gcast_command(update: Update, context: CallbackContext):
         
         for user in users:
             try:
-                context.bot.send_message(chat_id=user[0], text=message)
+                await context.bot.send_message(chat_id=user[0], text=message)
                 success_count += 1
             except:
                 fail_count += 1
         
-        update.message.reply_text(
+        await update.message.reply_text(
             f"✅ *Broadcast Completed*\n\n"
             f"• Success: {success_count}\n"
             f"• Failed: {fail_count}",
@@ -1401,17 +1400,17 @@ def gcast_command(update: Update, context: CallbackContext):
         )
     except Exception as e:
         logger.error(f"Error in gcast: {e}")
-        update.message.reply_text("❌ An error occurred while broadcasting the message.", parse_mode="Markdown")
+        await update.message.reply_text("❌ An error occurred while broadcasting the message.", parse_mode="Markdown")
 
-def protect_command(update: Update, context: CallbackContext):
+async def protect_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     if not is_owner(user_id):
-        update.message.reply_text("❌ Only the owner can use this command.", parse_mode="Markdown")
+        await update.message.reply_text("❌ Only the owner can use this command.", parse_mode="Markdown")
         return
     
     if len(context.args) < 1:
-        update.message.reply_text("❌ Please provide a number to protect.\n\nUsage: `/protect 9876543210`", parse_mode="Markdown")
+        await update.message.reply_text("❌ Please provide a number to protect.\n\nUsage: `/protect 9876543210`", parse_mode="Markdown")
         return
     
     number = context.args[0]
@@ -1424,24 +1423,24 @@ def protect_command(update: Update, context: CallbackContext):
         conn.commit()
         conn.close()
         
-        update.message.reply_text(
+        await update.message.reply_text(
             f"✅ *Number Protected*\n\n"
             f"Number: {number}",
             parse_mode="Markdown"
         )
     except Exception as e:
         logger.error(f"Error in protect: {e}")
-        update.message.reply_text("❌ An error occurred while protecting the number.", parse_mode="Markdown")
+        await update.message.reply_text("❌ An error occurred while protecting the number.", parse_mode="Markdown")
 
-def unprotect_command(update: Update, context: CallbackContext):
+async def unprotect_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     if not is_owner(user_id):
-        update.message.reply_text("❌ Only the owner can use this command.", parse_mode="Markdown")
+        await update.message.reply_text("❌ Only the owner can use this command.", parse_mode="Markdown")
         return
     
     if len(context.args) < 1:
-        update.message.reply_text("❌ Please provide a number to unprotect.\n\nUsage: `/unprotect 9876543210`", parse_mode="Markdown")
+        await update.message.reply_text("❌ Please provide a number to unprotect.\n\nUsage: `/unprotect 9876543210`", parse_mode="Markdown")
         return
     
     number = context.args[0]
@@ -1453,77 +1452,77 @@ def unprotect_command(update: Update, context: CallbackContext):
         conn.commit()
         conn.close()
         
-        update.message.reply_text(
+        await update.message.reply_text(
             f"✅ *Number Unprotected*\n\n"
             f"Number: {number}",
             parse_mode="Markdown"
         )
     except Exception as e:
         logger.error(f"Error in unprotect: {e}")
-        update.message.reply_text("❌ An error occurred while unprotecting the number.", parse_mode="Markdown")
+        await update.message.reply_text("❌ An error occurred while unprotecting the number.", parse_mode="Markdown")
 
-def blacklist_command(update: Update, context: CallbackContext):
+async def blacklist_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     if not is_sudo(user_id):
-        update.message.reply_text("❌ You don't have permission to use this command.", parse_mode="Markdown")
+        await update.message.reply_text("❌ You don't have permission to use this command.", parse_mode="Markdown")
         return
     
     if len(context.args) < 1:
-        update.message.reply_text("❌ Please provide a number to blacklist.\n\nUsage: `/blacklist 9876543210`", parse_mode="Markdown")
+        await update.message.reply_text("❌ Please provide a number to blacklist.\n\nUsage: `/blacklist 9876543210`", parse_mode="Markdown")
         return
     
     number = context.args[0]
     
     if number not in BLACKLISTED_NUMBERS:
         BLACKLISTED_NUMBERS.append(number)
-        update.message.reply_text(
+        await update.message.reply_text(
             f"✅ *Number Blacklisted*\n\n"
             f"Number: {number}",
             parse_mode="Markdown"
         )
     else:
-        update.message.reply_text("❌ This number is already blacklisted.", parse_mode="Markdown")
+        await update.message.reply_text("❌ This number is already blacklisted.", parse_mode="Markdown")
 
-def unblacklist_command(update: Update, context: CallbackContext):
+async def unblacklist_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     if not is_sudo(user_id):
-        update.message.reply_text("❌ You don't have permission to use this command.", parse_mode="Markdown")
+        await update.message.reply_text("❌ You don't have permission to use this command.", parse_mode="Markdown")
         return
     
     if len(context.args) < 1:
-        update.message.reply_text("❌ Please provide a number to unblacklist.\n\nUsage: `/unblacklist 9876543210`", parse_mode="Markdown")
+        await update.message.reply_text("❌ Please provide a number to unblacklist.\n\nUsage: `/unblacklist 9876543210`", parse_mode="Markdown")
         return
     
     number = context.args[0]
     
     if number in BLACKLISTED_NUMBERS:
         BLACKLISTED_NUMBERS.remove(number)
-        update.message.reply_text(
+        await update.message.reply_text(
             f"✅ *Number Unblacklisted*\n\n"
             f"Number: {number}",
             parse_mode="Markdown"
         )
     else:
-        update.message.reply_text("❌ This number is not blacklisted.", parse_mode="Markdown")
+        await update.message.reply_text("❌ This number is not blacklisted.", parse_mode="Markdown")
 
 # Callback query handlers
-def button_callback(update: Update, context: CallbackContext):
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    query.answer()
+    await query.answer()
     
     user_id = update.effective_user.id
     
     if query.data == "check_membership":
         if is_user_member(context, user_id):
-            query.edit_message_text(
+            await query.edit_message_text(
                 "✅ *Verification Successful*\n\n"
                 "You can now use the bot. Click /start to continue.",
                 parse_mode="Markdown"
             )
         else:
-            query.edit_message_text(
+            await query.edit_message_text(
                 "❌ *Verification Failed*\n\n"
                 "You haven't joined all required channels. Please join all channels and try again.",
                 parse_mode="Markdown"
@@ -1542,7 +1541,7 @@ def button_callback(update: Update, context: CallbackContext):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        query.edit_message_text(
+        await query.edit_message_text(
             "🔍 *Search Menu*\n\n"
             "Choose a search option below:",
             reply_markup=reply_markup,
@@ -1577,7 +1576,7 @@ def button_callback(update: Update, context: CallbackContext):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        query.edit_message_text(
+        await query.edit_message_text(
             f"💳 *Your Credits: {credits}*\n\n"
             f"👥 *Referral Stats:*\n"
             f"• Referrals: {referral_count}\n"
@@ -1602,7 +1601,7 @@ def button_callback(update: Update, context: CallbackContext):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        query.edit_message_text(
+        await query.edit_message_text(
             f"🤝 *Referral Program*\n\n"
             f"Share your referral link and earn rewards!\n\n"
             f"🔗 *Your Referral Link:*\n{referral_link}\n\n"
@@ -1661,7 +1660,7 @@ def button_callback(update: Update, context: CallbackContext):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        query.edit_message_text(help_text, reply_markup=reply_markup, parse_mode="Markdown")
+        await query.edit_message_text(help_text, reply_markup=reply_markup, parse_mode="Markdown")
     elif query.data == "buy_credits":
         keyboard = []
         for credits, price in CREDIT_PRICES.items():
@@ -1679,7 +1678,7 @@ def button_callback(update: Update, context: CallbackContext):
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        query.edit_message_text(
+        await query.edit_message_text(
             "💳 *Buy Credits*\n\n"
             "Choose a credit package below:\n\n"
             "💰 *Payment Methods:*\n"
@@ -1702,7 +1701,7 @@ def button_callback(update: Update, context: CallbackContext):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        query.edit_message_text(
+        await query.edit_message_text(
             f"💳 *Buy {credits_amount} Credits*\n\n"
             f"💰 *Price:*\n"
             f"• ₹{price['inr']} (UPI)\n"
@@ -1717,7 +1716,7 @@ def button_callback(update: Update, context: CallbackContext):
         price = CREDIT_PRICES[credits_amount]
         
         if payment_method == "upi":
-            query.edit_message_text(
+            await query.edit_message_text(
                 f"💳 *UPI Payment*\n\n"
                 f"💰 *Amount:* ₹{price['inr']}\n"
                 f"📊 *Credits:* {credits_amount}\n\n"
@@ -1732,7 +1731,7 @@ def button_callback(update: Update, context: CallbackContext):
                 parse_mode="Markdown"
             )
         elif payment_method == "usdt":
-            query.edit_message_text(
+            await query.edit_message_text(
                 f"💳 *USDT Payment*\n\n"
                 f"💰 *Amount:* {price['usdt']} USDT\n"
                 f"📊 *Credits:* {credits_amount}\n\n"
@@ -1773,7 +1772,7 @@ def button_callback(update: Update, context: CallbackContext):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        query.edit_message_text(
+        await query.edit_message_text(
             f"👋 *Welcome to DataTrace OSINT Bot, {user.first_name}!*\n\n"
             f"🔍 *Your Credits:* {credits}\n\n"
             f"📋 *Features:*\n"
@@ -1794,7 +1793,7 @@ def button_callback(update: Update, context: CallbackContext):
         search_type = query.data.split("_")[1]
         
         if search_type == "upi":
-            query.edit_message_text(
+            await query.edit_message_text(
                 "🏦 *UPI to Information*\n\n"
                 "Please send the UPI ID you want to search.\n\n"
                 "Example: example@upi\n\n"
@@ -1802,7 +1801,7 @@ def button_callback(update: Update, context: CallbackContext):
                 parse_mode="Markdown"
             )
         elif search_type == "num":
-            query.edit_message_text(
+            await query.edit_message_text(
                 "📱 *Number to Information*\n\n"
                 "Please send the phone number you want to search.\n\n"
                 "Example: 9876543210\n\n"
@@ -1810,7 +1809,7 @@ def button_callback(update: Update, context: CallbackContext):
                 parse_mode="Markdown"
             )
         elif search_type == "tg":
-            query.edit_message_text(
+            await query.edit_message_text(
                 "👤 *Telegram User Stats*\n\n"
                 "Please send the Telegram user ID you want to search.\n\n"
                 "Example: 123456789\n\n"
@@ -1818,7 +1817,7 @@ def button_callback(update: Update, context: CallbackContext):
                 parse_mode="Markdown"
             )
         elif search_type == "ip":
-            query.edit_message_text(
+            await query.edit_message_text(
                 "🌐 *IP to Details*\n\n"
                 "Please send the IP address you want to search.\n\n"
                 "Example: 8.8.8.8\n\n"
@@ -1826,7 +1825,7 @@ def button_callback(update: Update, context: CallbackContext):
                 parse_mode="Markdown"
             )
         elif search_type == "pak":
-            query.edit_message_text(
+            await query.edit_message_text(
                 "🇵🇰 *Pakistan Number to CNIC*\n\n"
                 "Please send the Pakistan phone number you want to search.\n\n"
                 "Example: 3362006909\n\n"
@@ -1834,7 +1833,7 @@ def button_callback(update: Update, context: CallbackContext):
                 parse_mode="Markdown"
             )
         elif search_type == "aadhar":
-            query.edit_message_text(
+            await query.edit_message_text(
                 "🆔 *Aadhar to Details*\n\n"
                 "Please send the Aadhar number you want to search.\n\n"
                 "Example: 123456789012\n\n"
@@ -1842,7 +1841,7 @@ def button_callback(update: Update, context: CallbackContext):
                 parse_mode="Markdown"
             )
         elif search_type == "family":
-            query.edit_message_text(
+            await query.edit_message_text(
                 "👨‍👩‍👧 *Aadhar to Family Details*\n\n"
                 "Please send the Aadhar number you want to search.\n\n"
                 "Example: 123456789012\n\n"
@@ -1850,7 +1849,7 @@ def button_callback(update: Update, context: CallbackContext):
                 parse_mode="Markdown"
             )
         elif search_type == "call":
-            query.edit_message_text(
+            await query.edit_message_text(
                 "📞 *Call History (Paid - 600 credits)*\n\n"
                 "Please send the phone number you want to search.\n\n"
                 "Example: 9876543210\n\n"
@@ -1859,13 +1858,13 @@ def button_callback(update: Update, context: CallbackContext):
             )
     elif query.data.startswith("admin_"):
         if not is_sudo(user_id):
-            query.answer("You don't have permission to use this command.", show_alert=True)
+            await query.answer("You don't have permission to use this command.", show_alert=True)
             return
         
         admin_action = query.data.split("_")[1]
         
         if admin_action == "add_credits":
-            query.edit_message_text(
+            await query.edit_message_text(
                 "👥 *Add Credits*\n\n"
                 "Please use the command format:\n"
                 "`/addcredits USER_ID AMOUNT`\n\n"
@@ -1873,7 +1872,7 @@ def button_callback(update: Update, context: CallbackContext):
                 parse_mode="Markdown"
             )
         elif admin_action == "ban_user":
-            query.edit_message_text(
+            await query.edit_message_text(
                 "🚫 *Ban/Unban User*\n\n"
                 "Please use the command format:\n"
                 "`/ban USER_ID` or `/unban USER_ID`\n\n"
@@ -1935,12 +1934,12 @@ def button_callback(update: Update, context: CallbackContext):
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
-                query.edit_message_text(stats_text, reply_markup=reply_markup, parse_mode="Markdown")
+                await query.edit_message_text(stats_text, reply_markup=reply_markup, parse_mode="Markdown")
             except Exception as e:
                 logger.error(f"Error in stats: {e}")
-                query.edit_message_text("❌ An error occurred while fetching statistics.", parse_mode="Markdown")
+                await query.edit_message_text("❌ An error occurred while fetching statistics.", parse_mode="Markdown")
         elif admin_action == "gcast":
-            query.edit_message_text(
+            await query.edit_message_text(
                 "📢 *Broadcast Message*\n\n"
                 "Please use the command format:\n"
                 "`/gcast Your message here`\n\n"
@@ -1949,10 +1948,10 @@ def button_callback(update: Update, context: CallbackContext):
             )
         elif admin_action == "protect_number":
             if not is_owner(user_id):
-                query.answer("Only the owner can use this function.", show_alert=True)
+                await query.answer("Only the owner can use this function.", show_alert=True)
                 return
             
-            query.edit_message_text(
+            await query.edit_message_text(
                 "🔒 *Protect Number*\n\n"
                 "Please use the command format:\n"
                 "`/protect NUMBER`\n\n"
@@ -1960,7 +1959,7 @@ def button_callback(update: Update, context: CallbackContext):
                 parse_mode="Markdown"
             )
         elif admin_action == "blacklist_number":
-            query.edit_message_text(
+            await query.edit_message_text(
                 "⛔ *Blacklist Number*\n\n"
                 "Please use the command format:\n"
                 "`/blacklist NUMBER` or `/unblacklist NUMBER`\n\n"
@@ -1979,7 +1978,7 @@ def button_callback(update: Update, context: CallbackContext):
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            query.edit_message_text(
+            await query.edit_message_text(
                 "🛠️ *Admin Panel*\n\n"
                 "Choose an option below:",
                 reply_markup=reply_markup,
@@ -1987,7 +1986,7 @@ def button_callback(update: Update, context: CallbackContext):
             )
 
 # Message handlers
-def message_handler(update: Update, context: CallbackContext):
+async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     message_text = update.message.text
     
@@ -1999,12 +1998,12 @@ def message_handler(update: Update, context: CallbackContext):
     conn.close()
     
     if user_data and user_data[0] == 1:
-        update.message.reply_text("❌ You are banned from using this bot.", parse_mode="Markdown")
+        await update.message.reply_text("❌ You are banned from using this bot.", parse_mode="Markdown")
         return
     
     # Check if user is member of required channels
     if not is_user_member(context, user_id):
-        check_membership(update, context)
+        await check_membership(update, context)
         return
     
     # Update last used
@@ -2021,35 +2020,35 @@ def message_handler(update: Update, context: CallbackContext):
         if message_text.startswith("92"):
             # Handle as Pakistan number
             context.args = [message_text]
-            pak_handler(update, context)
+            await pak_handler(update, context)
         # Check if it's an Indian number (starts with 91)
         elif message_text.startswith("91"):
             # Handle as Indian number
             context.args = [message_text[2:]]
-            num_handler(update, context)
+            await num_handler(update, context)
         else:
             # Handle as regular number
             context.args = [message_text]
-            num_handler(update, context)
+            await num_handler(update, context)
     # Check if it's a UPI ID
     elif "@" in message_text and "." in message_text.split("@")[1]:
         # Handle as UPI ID
         context.args = [message_text]
-        upi_handler(update, context)
+        await upi_handler(update, context)
     # Check if it's an IP address
     elif "." in message_text and all(part.isdigit() for part in message_text.split(".")):
         # Handle as IP address
         context.args = [message_text]
-        ip_handler(update, context)
+                await ip_handler(update, context)
     else:
         # Unknown message type
-        update.message.reply_text(
+        await update.message.reply_text(
             "❌ I don't understand this message.\n\n"
             "Please use the buttons or commands to search for information.",
             parse_mode="Markdown"
         )
 
-def group_message_handler(update: Update, context: CallbackContext):
+async def group_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
     user_id = update.effective_user.id
     
@@ -2079,40 +2078,40 @@ def group_message_handler(update: Update, context: CallbackContext):
             if message.text.startswith("92"):
                 # Handle as Pakistan number
                 context.args = [message.text]
-                pak_handler(update, context)
+                await pak_handler(update, context)
             # Check if it's an Indian number (starts with 91)
             elif message.text.startswith("91"):
                 # Handle as Indian number
                 context.args = [message.text[2:]]
-                num_handler(update, context)
+                await num_handler(update, context)
             else:
                 # Handle as regular number
                 context.args = [message.text]
-                num_handler(update, context)
+                await num_handler(update, context)
         # Check if it's a UPI ID
         elif "@" in message.text and "." in message.text.split("@")[1]:
             # Handle as UPI ID
             context.args = [message.text]
-            upi_handler(update, context)
+            await upi_handler(update, context)
         # Check if it's an IP address
         elif "." in message.text and all(part.isdigit() for part in message.text.split(".")):
             # Handle as IP address
             context.args = [message.text]
-            ip_handler(update, context)
+            await ip_handler(update, context)
         else:
             # Unknown message type
             return  # Don't reply in groups for unknown messages
 
-def error_handler(update: Update, context: CallbackContext):
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Update {update} caused error {context.error}")
 
-async def main():
+def main():
     # Initialize database
     init_db()
-
-    # Create the Application and pass it your bot's token.
-    application = ApplicationBuilder().token(TOKEN).build()
-
+    
+    # Create the Application
+    application = Application.builder().token(TOKEN).build()
+    
     # Set bot commands
     commands = [
         BotCommand("start", "Start the bot"),
@@ -2138,11 +2137,10 @@ async def main():
         BotCommand("unprotect", "Unprotect a number (Owner)"),
         BotCommand("blacklist", "Blacklist a number (Admin)"),
         BotCommand("unblacklist", "Unblacklist a number (Admin)")
-     ] 
+    ]
+    application.bot.set_my_commands(commands)
     
-    await application.bot.set_my_commands(commands)
-
-    # Register command handlers (update all handlers to async and use new API)
+    # Register command handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("credits", credits_command))
@@ -2168,14 +2166,19 @@ async def main():
     application.add_handler(CommandHandler("unprotect", unprotect_command))
     application.add_handler(CommandHandler("blacklist", blacklist_command))
     application.add_handler(CommandHandler("unblacklist", unblacklist_command))
+    
+    # Register callback query handler
     application.add_handler(CallbackQueryHandler(button_callback))
+    
+    # Register message handlers
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.GROUPS, group_message_handler))
-
+    
+    # Register error handler
     application.add_error_handler(error_handler)
+    
+    # Start the Bot
+    application.run_polling()
 
-    # Start the Bot (async run_polling)
-    await application.run_polling()
-
-if __name__ == '__main__':    
-    asyncio.run(main())   
+if __name__ == '__main__':
+    main()
