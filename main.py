@@ -882,7 +882,7 @@ def pak_handler(update: Update, context: CallbackContext):
             result_text = "🇵🇰 *PAKISTAN INFO*\n\n"
             
             for i, result in enumerate(results, 1):
-                result_text += f"{i️⃣\n"
+                result_text += f"{i️⃣}\n"
                 result_text += f"NAME: {result.get('Name', 'N/A')}\n"
                 result_text += f"CNIC: {result.get('CNIC', 'N/A')}\n"
                 result_text += f"MOBILE: {result.get('Mobile', 'N/A')}\n"
