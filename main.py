@@ -882,11 +882,11 @@ def pak_handler(update: Update, context: CallbackContext):
             result_text = "🇵🇰 *PAKISTAN INFO*\n\n"
             
             for i, result in enumerate(results, 1):
-    result_text += f"{i}️⃣\n"  # number + emoji outside the braces
-    result_text += f"NAME: {result.get('Name', 'N/A')}\n"
-    result_text += f"CNIC: {result.get('CNIC', 'N/A')}\n"
-    result_text += f"MOBILE: {result.get('Mobile', 'N/A')}\n"
-    result_text += f"ADDRESS: {result.get('Address', 'Not Available')}\n\n"
+                result_text += f"{i}️⃣\n"
+                result_text += f"NAME: {result.get('Name', 'N/A')}\n"
+                result_text += f"CNIC: {result.get('CNIC', 'N/A')}\n"
+                result_text += f"MOBILE: {result.get('Mobile', 'N/A')}\n"
+                result_text += f"ADDRESS: {result.get('Address', 'Not Available')}\n\n"
             
             # Add branding
             result_text += "🔍 *Powered by DataTrace OSINT*\n"
@@ -957,7 +957,7 @@ def aadhar_handler(update: Update, context: CallbackContext):
             result_text = "🆔 *AADHAR DETAILS*\n\n"
             
             for i, result in enumerate(data, 1):
-                result_text += f"{i️⃣\n"
+                result_text += f"{i}️⃣\n"
                 result_text += f"ID: {result.get('id', 'N/A')}\n"
                 result_text += f"MOBILE: {result.get('mobile', 'N/A')}\n"
                 result_text += f"ALT MOBILE: {result.get('alt_mobile', 'N/A')}\n"
@@ -1045,7 +1045,7 @@ def family_handler(update: Update, context: CallbackContext):
             
             members = data.get("memberDetailsList", [])
             for i, member in enumerate(members, 1):
-                result_text += f"{i️⃣ {member.get('memberName', 'N/A')} — {member.get('releationship_name', 'N/A')}\n"
+                result_text += f"{i}️⃣ {member.get('memberName', 'N/A')} — {member.get('releationship_name', 'N/A')}\n"
             
             # Add branding
             result_text += "\n\n🔍 *Powered by DataTrace OSINT*\n"
@@ -1129,7 +1129,7 @@ def call_handler(update: Update, context: CallbackContext):
             calls = data if isinstance(data, list) else [data]
             
             for i, call in enumerate(calls[:10], 1):  # Limit to 10 calls
-                result_text += f"{i️⃣\n"
+                result_text += f"{i}️⃣\n"
                 result_text += f"DATE: {call.get('date', 'N/A')}\n"
                 result_text += f"TIME: {call.get('time', 'N/A')}\n"
                 result_text += f"TYPE: {call.get('type', 'N/A')}\n"
