@@ -1,4 +1,4 @@
-TOKEN = "YOUR_BOT_TOKEN"  # <-- Replace with your bot token
+TOKEN = "8219144171:AAH3HZPZvvtohlxOkTP2jJVDuEAaAllyzdU"  # <-- Replace with your bot token
 LOG_CHANNEL = -1003066524164
 START_CHANNEL = -1002765060940
 REQUIRED_CHANNELS = [
