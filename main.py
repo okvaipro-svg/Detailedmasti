@@ -501,14 +501,19 @@ class DataTraceBot:
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         await self._ensure_session()
         user = update.effective_user
+        
+        # --- ENHANCED DEBUG LOGGING ---
+        logger.info(f"Received /start from user: {user.id} ({user.full_name}) in chat: {update.effective_chat.id}")
+        # --- END ENHANCED DEBUG LOGGING ---
+
         args = context.args or []
         payload = args[0] if args else None
         await init_db()
         # log start (best-effort)
         try:
             await self.app.bot.send_message(LOG_START_CHANNEL, f"/start by {user.id} @{user.username or ''} ({user.full_name})")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to log /start to channel {LOG_START_CHANNEL}: {e}")
 
         # create/update user
         await get_user_record(user.id)
@@ -640,8 +645,9 @@ class DataTraceBot:
                 mem = await self.app.bot.get_chat_member(chat_id, user_id)
                 if mem.status in ("left", "kicked"):
                     not_member.append(ch)
-            except Exception:
+            except Exception as e:
                 # If bot cannot check membership, assume user needs to join
+                logger.warning(f"Could not check membership for {ch}: {e}")
                 not_member.append(ch)
         if not_member:
             # Create inline keyboard for easy joining
@@ -732,7 +738,8 @@ class DataTraceBot:
         
         try:
             await update_obj.message.reply_text(header + "\n" + result_text, parse_mode=ParseMode.MARKDOWN)
-        except Exception:
+        except Exception as e:
+            logger.error(f"Failed to send message: {e}")
             await update_obj.message.reply_text(header + "\n" + (result_text or "No result"))
 
         # Log search (best-effort)
@@ -748,6 +755,10 @@ class DataTraceBot:
         user = update.effective_user
         chat = update.effective_chat
         text = msg.text or ""
+        
+        # --- ENHANCED DEBUG LOGGING ---
+        logger.debug(f"Received non-command message from {user.id} in {chat.type} chat.")
+        # --- END ENHANCED DEBUG LOGGING ---
 
         if chat.type in ("group", "supergroup"):
             bot_username = (await self.app.bot.get_me()).username
@@ -760,11 +771,14 @@ class DataTraceBot:
                             mentioned = True
             if not mentioned:
                 return  # do not respond in group unless mentioned
-
+            # Strip bot mention for processing
+            if mentioned:
+                text = re.sub(r"@"+re.escape(bot_username), "", text, 1).strip()
+        
         phone_match = PHONE_PATTERN.search(text)
         if phone_match:
             num = phone_match.group(0)
-            # Remove any non-digit characters from the start, except for '+'
+            # Remove all non-digit characters from the start, except for '+'
             if num.startswith('+'):
                 num = '+' + re.sub(r"[^\d]", "", num[1:])
             else:
