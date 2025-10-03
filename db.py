@@ -93,3 +93,22 @@ def get_sudo_list():
     lst = c.fetchall()
     conn.close()
     return [x[0] for x in lst]
+
+def get_logs(user_id=None):
+    conn = sqlite3.connect("bot.db")
+    c = conn.cursor()
+    if user_id:
+        c.execute("SELECT * FROM logs WHERE user_id = ?", (user_id,))
+    else:
+        c.execute("SELECT * FROM logs")
+    logs = c.fetchall()
+    conn.close()
+    return logs
+
+def get_all_users():
+    conn = sqlite3.connect("bot.db")
+    c = conn.cursor()
+    c.execute("SELECT user_id FROM users")
+    users = c.fetchall()
+    conn.close()
+    return [x[0] for x in users]
