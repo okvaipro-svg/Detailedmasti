@@ -888,7 +888,6 @@ class DataTraceBot:
             await update.message.reply_text(f"Added blacklist number {num}.")
             return
 
-    # Start/stop lifecycle for the bot
     async def start_and_idle(self):
         await init_db()
         await self._ensure_session()
@@ -897,22 +896,18 @@ class DataTraceBot:
         await self.app.initialize()
         await self.app.start()
 
-        # Explicitly delete webhook and drop pending updates for clean polling start
         try:
             webhook_deleted = await self.app.bot.delete_webhook(drop_pending_updates=True)
             if webhook_deleted:
                 logger.info("Successfully deleted any previous webhook and dropped pending updates.")
-            # Give a small moment for the connection state to reset before starting long polling
             await asyncio.sleep(0.5) 
         except Exception as e:
             logger.warning(f"Failed to delete webhook on startup (can be ignored if not using webhooks): {e}")
 
-        # start polling
-        await self.app.updater.start_polling()
+        # This is the new recommended way
+        await self.app.run_polling()
         logger.info("Bot started and polling for updates. Press Ctrl+C to stop.")
-        await self.app.updater.idle()
-        # cleanup
-        await self.app.updater.stop_polling()
+
         await self.app.stop()
         await self.app.shutdown()
         if self.session and not self.session.closed:
