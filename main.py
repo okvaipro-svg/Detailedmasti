@@ -508,18 +508,21 @@ async def process_number_info(update: Update, context: ContextTypes.DEFAULT_TYPE
         response.raise_for_status()
         data = response.json()
         
-        if "data" in data and len(data["data"]) > 0:
-            result = data["data"][0]
+        # --- THIS IS THE KEY CHANGE ---
+        # Check if the response is a list and not empty
+        if isinstance(data, list) and len(data) > 0:
+            result = data[0]  # Get the first item from the list directly
             
+            # --- UPDATED FORMATTING ---
             formatted_response = (
                 f"📱 **NUMBER DETAILS**\n\n"
                 f"📞 **MOBILE:** {result.get('mobile', 'N/A')}\n"
-                f"📞 **ALT MOBILE:** {result.get('alt', 'N/A')}\n"
+                f"📞 **ALT MOBILE:** {result.get('alt_mobile', 'N/A')}\n"
                 f"👤 **NAME:** {result.get('name', 'N/A')}\n"
-                f"👤 **FULL NAME:** {result.get('fname', 'N/A')}\n"
+                f"👨 **FATHER'S NAME:** {result.get('father_name', 'N/A')}\n"
                 f"🏠 **ADDRESS:** {result.get('address', 'N/A').replace('!', ', ')}\n"
                 f"📡 **CIRCLE:** {result.get('circle', 'N/A')}\n"
-                f"🆔 **ID:** {result.get('id', 'N/A')}\n\n"
+                f"🆔 **ID NUMBER:** {result.get('id_number', 'N/A')}\n\n"
                 f"📊 Data provided by @DataTraceUpdates\n"
                 f"📞 Contact Admin: @{ADMIN_CONTACT}"
             )
