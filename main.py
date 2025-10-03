@@ -3,20 +3,21 @@ import os
 import json
 import requests
 import sqlite3
-import asyncio
 import random
 import string
 from datetime import datetime
+
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, BotCommand
 from telegram.ext import (
-    Updater,
+    ApplicationBuilder,
     CommandHandler,
     MessageHandler,
     CallbackQueryHandler,
     ConversationHandler,
-    CallbackContext,
+    ContextTypes,
     filters,
 )
+
 
 # Enable logging
 logging.basicConfig(
