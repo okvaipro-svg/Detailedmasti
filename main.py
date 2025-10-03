@@ -2137,7 +2137,7 @@ async def main():
         BotCommand("unprotect", "Unprotect a number (Owner)"),
         BotCommand("blacklist", "Blacklist a number (Admin)"),
         BotCommand("unblacklist", "Unblacklist a number (Admin)")
-        # ... [all your commands as before]
+     ] 
     
     await application.bot.set_my_commands(commands)
 
