@@ -9,7 +9,8 @@ from datetime import datetime
 # --- Corrected Imports for v20.x ---
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, CallbackContext, ContextTypes
-from telegram.ext.filters import Filters
+# NEW (Correct)
+import telegram.ext.filters as filters
 # ------------------------------------
 
 # Enable logging
@@ -1297,11 +1298,11 @@ def main():
     application.add_handler(CallbackQueryHandler(button_callback))
     
     # Message handler for direct messages
-    application.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
+    # NEW (Correct)
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    # Group message handler
-    application.add_handler(MessageHandler(Filters.group & Filters.text, group_message))
-    
+    # NEW (Correct)
+    application.add_handler(MessageHandler(filters.ChatType.GROUP & filters.TEXT, group_message))
     # Error handler
     application.add_error_handler(error_handler)
     
