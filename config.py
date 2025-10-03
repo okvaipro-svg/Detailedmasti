@@ -1,20 +1,24 @@
 TOKEN = "8219144171:AAH3HZPZvvtohlxOkTP2jJVDuEAaAllyzdU"  # <-- Replace with your bot token
+SUPPORT_GROUP_ID = -1001148356372  # <-- Replace with your actual group ID for DataTraceOSINTSupport
 LOG_CHANNEL = -1003066524164
 START_CHANNEL = -1002765060940
-REQUIRED_CHANNELS = [
+MANDATORY_CHANNELS = [
     "DataTraceUpdates",
     "DataTraceOSINTSupport"
 ]
-ADMIN_CONTACT = "@DatatraceSupport"
+ADMIN_CONTACT = "@DataTraceSupport"
 OWNER_ID = 7924074157
 SUDO_IDS = [7924074157, 5294360309, 7905267752]
 BLACKLIST_NUMBERS = ["+917724814462"]
-PROTECTED_NUMBERS = ["+917724814462"]  # Example, can add more
+PROTECTED_NUMBERS = [""]
 CREDIT_PRICES = [
-    (100, 30, 0.25),
-    (200, 60, 0.5),
-    (500, 120, 1.0),
+    (100, 25, 0.25),
+    (200, 50, 0.45),
+    (500, 100, 0.9),
     (1000, 200, 1.8),
     (2000, 400, 3.5),
-    (5000, 1000, 8.5)
+    (5000, 900, 7.5)
 ]
+CALL_HISTORY_PRICE = 600
+PROTECT_PRICE = 300
+FREE_SEARCHES_DM = 2
