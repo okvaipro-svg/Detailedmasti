@@ -5,9 +5,12 @@ import random
 import string
 import os
 from datetime import datetime
+
+# --- Corrected Imports for v20.x ---
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler, ConversationHandler, CallbackContext
-from telegram.error import BadRequest
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, CallbackContext, ContextTypes
+from telegram.ext.filters import Filters
+# ------------------------------------
 
 # Enable logging
 logging.basicConfig(
@@ -16,7 +19,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Bot Configuration
-BOT_TOKEN = "8219144171:AAH3HZPZvvtohlxOkTP2jJVDuEAaAllyzdU"  # Replace with your bot token
+BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"  # Replace with your bot token
 OWNER_ID = 7924074157
 SUDO_USERS = [7924074157, 5294360309, 7905267752]
 START_LOGS_CHANNEL = -1002765060940
@@ -24,7 +27,7 @@ SEARCH_LOGS_CHANNEL = -1003066524164
 MANDATORY_CHANNELS = ["DataTraceUpdates", "DataTraceOSINTSupport"]
 ADMIN_CONTACT = "t.me/DataTraceSupport"
 
-# Database (In production, use a proper database)
+# Database (In production, use a proper database like PostgreSQL or MongoDB)
 users_db = {}
 referrals_db = {}
 credits_db = {}
@@ -54,25 +57,23 @@ CREDIT_PRICES = {
     5000: {"inr": 2250, "usdt": 20.0}
 }
 
-# States for conversation
-SELECT_SERVICE, ENTER_DETAILS = range(2)
-
-def is_user_member(update: Update, context: CallbackContext) -> bool:
+# --- All functions are now async ---
+async def is_user_member(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     """Check if user is a member of all mandatory channels"""
     user_id = update.effective_user.id
     bot = context.bot
     
     for channel in MANDATORY_CHANNELS:
         try:
-            member = bot.get_chat_member(f"@{channel}", user_id)
+            member = await bot.get_chat_member(f"@{channel}", user_id)
             if member.status in ["left", "kicked"]:
                 return False
-        except BadRequest:
+        except Exception:
             return False
     
     return True
 
-def send_not_member_message(update: Update, context: CallbackContext):
+async def send_not_member_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send message asking user to join mandatory channels"""
     keyboard = []
     for channel in MANDATORY_CHANNELS:
@@ -80,20 +81,20 @@ def send_not_member_message(update: Update, context: CallbackContext):
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    update.message.reply_text(
+    await update.message.reply_text(
         "❌ You need to join all mandatory channels to use this bot.\n\n"
         "Please join the channels below and then click /start again:",
         reply_markup=reply_markup
     )
 
-def start(update: Update, context: CallbackContext):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start command"""
     user = update.effective_user
     user_id = user.id
     
     # Log to channel
     try:
-        context.bot.send_message(
+        await context.bot.send_message(
             START_LOGS_CHANNEL,
             f"🆕 New User Started\n\n"
             f"👤 Name: {user.first_name} {user.last_name or ''}\n"
@@ -105,8 +106,8 @@ def start(update: Update, context: CallbackContext):
         logger.error(f"Failed to log start message: {e}")
     
     # Check if user is member of mandatory channels
-    if not is_user_member(update, context):
-        send_not_member_message(update, context)
+    if not await is_user_member(update, context):
+        await send_not_member_message(update, context)
         return
     
     # Process referral if any
@@ -132,8 +133,8 @@ def start(update: Update, context: CallbackContext):
                     credits_db[user_id] = 1
                 
                 try:
-                    context.bot.send_message(
-                        referrer_id,
+                    await context.bot.send_message(
+                        int(referrer_id),
                         f"🎉 Someone joined using your referral link!\n"
                         f"You've received 1 credit as a bonus.\n"
                         f"Your current balance: {credits_db[referrer_id]} credits"
@@ -170,7 +171,7 @@ def start(update: Update, context: CallbackContext):
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    update.message.reply_text(
+    await update.message.reply_text(
         f"👋 Welcome, {user.first_name}!\n\n"
         f"🔍 DataTrace OSINT Bot provides various lookup services.\n\n"
         f"💳 Your Credits: {credits_db[user_id]}\n\n"
@@ -179,18 +180,18 @@ def start(update: Update, context: CallbackContext):
         reply_markup=reply_markup
     )
 
-def button_callback(update: Update, context: CallbackContext):
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle button callbacks"""
     query = update.callback_query
-    query.answer()
+    await query.answer()
     
     user_id = update.effective_user.id
     
     # Check if user is member of mandatory channels
-    if not is_user_member(update, context):
-        send_not_member_message(update, context)
+    if not await is_user_member(update, context):
+        await send_not_member_message(update, context)
         return
-    
+
     if query.data == "lookup_services":
         keyboard = [
             [InlineKeyboardButton("📱 Number Info", callback_data="num_info")],
@@ -206,7 +207,7 @@ def button_callback(update: Update, context: CallbackContext):
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        query.edit_message_text(
+        await query.edit_message_text(
             "🔍 Select a lookup service:",
             reply_markup=reply_markup
         )
@@ -225,7 +226,7 @@ def button_callback(update: Update, context: CallbackContext):
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        query.edit_message_text(
+        await query.edit_message_text(
             "💰 Select a credit package to purchase:",
             reply_markup=reply_markup
         )
@@ -246,7 +247,7 @@ def button_callback(update: Update, context: CallbackContext):
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        query.edit_message_text(
+        await query.edit_message_text(
             f"💰 Selected Package: {credits_amount} Credits\n\n"
             f"💵 Price: ₹{prices['inr']} or {prices['usdt']} USDT\n\n"
             f"Select a payment method:",
@@ -259,14 +260,14 @@ def button_callback(update: Update, context: CallbackContext):
         prices = CREDIT_PRICES[credits_amount]
         
         if payment_method == "UPI":
-            query.edit_message_text(
+            await query.edit_message_text(
                 f"💳 UPI Payment Details\n\n"
                 f"Amount: ₹{prices['inr']}\n"
                 f"UPI ID: [Your UPI ID Here]\n\n"
                 f"After payment, send a screenshot to @{ADMIN_CONTACT} to get your credits."
             )
         else:
-            query.edit_message_text(
+            await query.edit_message_text(
                 f"💎 USDT Payment Details\n\n"
                 f"Amount: {prices['usdt']} USDT\n"
                 f"Wallet Address: [Your USDT Wallet Here]\n\n"
@@ -284,7 +285,7 @@ def button_callback(update: Update, context: CallbackContext):
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        query.edit_message_text(
+        await query.edit_message_text(
             f"👥 Referral Program\n\n"
             f"🔗 Your Referral Link: {referral_link}\n\n"
             f"📊 Your Referrals: {referral_count}\n\n"
@@ -306,7 +307,7 @@ def button_callback(update: Update, context: CallbackContext):
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        query.edit_message_text(
+        await query.edit_message_text(
             f"🛡️ Protect Your Data\n\n"
             f"For ₹300, you can protect your personal information from being searched through this bot.\n\n"
             f"Contact @{ADMIN_CONTACT} to proceed with data protection.",
@@ -343,7 +344,7 @@ def button_callback(update: Update, context: CallbackContext):
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        query.edit_message_text(
+        await query.edit_message_text(
             help_text,
             reply_markup=reply_markup
         )
@@ -364,7 +365,7 @@ def button_callback(update: Update, context: CallbackContext):
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        query.edit_message_text(
+        await query.edit_message_text(
             f"👋 Welcome, {update.effective_user.first_name}!\n\n"
             f"🔍 DataTrace OSINT Bot provides various lookup services.\n\n"
             f"💳 Your Credits: {credits_db[user_id]}\n\n"
@@ -396,26 +397,24 @@ def button_callback(update: Update, context: CallbackContext):
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        query.edit_message_text(
+        await query.edit_message_text(
             prompts[query.data],
             reply_markup=reply_markup
         )
-        
-        return SELECT_SERVICE
 
-def handle_message(update: Update, context: CallbackContext):
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle direct messages (non-command)"""
     user_id = update.effective_user.id
     message_text = update.message.text.strip()
     
     # Check if user is member of mandatory channels
-    if not is_user_member(update, context):
-        send_not_member_message(update, context)
+    if not await is_user_member(update, context):
+        await send_not_member_message(update, context)
         return
     
     # Check if user has enough credits
     if user_id not in credits_db or credits_db[user_id] <= 0:
-        update.message.reply_text(
+        await update.message.reply_text(
             "❌ You don't have enough credits to use this service.\n\n"
             "💰 Buy more credits or refer friends to earn free credits."
         )
@@ -427,21 +426,21 @@ def handle_message(update: Update, context: CallbackContext):
         
         # Process based on service
         if service == "num_info":
-            process_number_info(update, context, message_text)
+            await process_number_info(update, context, message_text)
         elif service == "pak_num_info":
-            process_pak_num_info(update, context, message_text)
+            await process_pak_num_info(update, context, message_text)
         elif service == "aadhar_details":
-            process_aadhar_details(update, context, message_text)
+            await process_aadhar_details(update, context, message_text)
         elif service == "aadhar_family":
-            process_aadhar_family(update, context, message_text)
+            await process_aadhar_family(update, context, message_text)
         elif service == "upi_info":
-            process_upi_info(update, context, message_text)
+            await process_upi_info(update, context, message_text)
         elif service == "ip_details":
-            process_ip_details(update, context, message_text)
+            await process_ip_details(update, context, message_text)
         elif service == "tg_user_stats":
-            process_tg_user_stats(update, context, message_text)
+            await process_tg_user_stats(update, context, message_text)
         elif service == "call_history":
-            process_call_history(update, context, message_text)
+            await process_call_history(update, context, message_text)
         
         # Clear the service state
         del context.user_data['service']
@@ -451,667 +450,852 @@ def handle_message(update: Update, context: CallbackContext):
     if message_text.startswith("+"):
         if message_text.startswith("+92"):
             # Pakistan number
-            process_pak_num_info(update, context, message_text)
+            await process_pak_num_info(update, context, message_text)
         else:
             # Other international number
-            process_number_info(update, context, message_text)
+            await process_number_info(update, context, message_text)
     elif message_text.isdigit() and len(message_text) >= 10:
         # Likely a mobile number
-        process_number_info(update, context, message_text)
+        await process_number_info(update, context, message_text)
     elif "@" in message_text and "." in message_text:
         # Likely a UPI ID
-        process_upi_info(update, context, message_text)
+        await process_upi_info(update, context, message_text)
     elif "." in message_text and len(message_text.split(".")) == 4:
         # Likely an IP address
-        process_ip_details(update, context, message_text)
+        await process_ip_details(update, context, message_text)
     elif message_text.isdigit() and len(message_text) == 12:
         # Likely an Aadhaar number
-        process_aadhar_details(update, context, message_text)
+        await process_aadhar_details(update, context, message_text)
     else:
-        update.message.reply_text(
+        await update.message.reply_text(
             "❌ I couldn't recognize your input.\n\n"
             "Please use the /help command to see available services or select from the menu."
         )
 
-def process_number_info(update: Update, context: CallbackContext, number: str):
+async def process_number_info(update: Update, context: ContextTypes.DEFAULT_TYPE, number: str):
     """Process number information request"""
     user_id = update.effective_user.id
     
-    # Check if number is blacklisted
     if number in blacklisted_numbers:
-        update.message.reply_text("❌ This number is blacklisted and cannot be searched.")
+        await update.message.reply_text("❌ This number is blacklisted and cannot be searched.")
         return
     
-    # Check if number is protected and user is not owner
     if number in protected_numbers and user_id != OWNER_ID:
-        update.message.reply_text("❌ This number is protected and cannot be searched.")
+        await update.message.reply_text("❌ This number is protected and cannot be searched.")
         return
     
-    # Clean the number (remove +91 if pait msg.answer("Broadcast sent.")
-
-@dp.message_handler(commands=['sudolist'])
-async def sudolist_cmd(msg: types.Message):
-    if msg.from_user.id not in SUDO_IDS and msg.from_user.id != OWNER_ID: return
-    lst = get_sudo_list()
-    await msg.answer(f"Sudo list: {lst}")
-
-@dp.message_handler(commands=['buydb', 'buyapi'])
-async def buy_cmd(msg: types.Message):
-    await msg.answer(f"Contact admin: {ADMIN_CONTACT}")
-
-@dp.message_handler(commands=['protected'])
-async def protected_cmd(msg: types.Message):
-    if msg.from_user.id == OWNER_ID:
-        await msg.answer(f"Protected Numbers:\n{PROTECTED_NUMBERS}")
-    else:
-        await msg.answer("Only owner can view protected numbers.")
-
-@dp.message_handler(commands=['blacklist'])
-async def blacklist_cmd(msg: types.Message):
-    if msg.from_user.id == OWNER_ID:
-        await msg.answer(f"Blacklisted Numbers:\n{BLACKLIST_NUMBERS}")
-    else:
-        await msg.answer("Only owner can view blacklist.")
-
-# --- Unified Query Handlers ---
-async def fetch_api(url):
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as resp:
-            try:
-                return await resp.json()
-            except:
-                return await resp.text()
-
-async def handle_number(msg, number):
-    user_id = msg.from_user.id
-    if number in BLACKLIST_NUMBERS:
-        await msg.answer("Blacklisted number. No result.")
-        return
-    api_url = f"http://osintx.info/API/krobetahack.php?key=SHAD0WINT3L&type=mobile&term={number[-10:]}"
-    data = await fetch_api(api_url)
+    if number.startswith("+91"):
+        number = number[3:]
+    
+    credits_db[user_id] -= 1
+    
     try:
-        res = data['data'][0]
-        body = (
-            f"📞 Mobile: {res['mobile']} | Alt: {res['alt']}\n"
-            f"👤 Name: {res['name']}\n"
-            f"🧾 Full Name: {res['fname']}\n"
-            f"🏠 Address: {res['address'].replace('!', ', ')}\n"
-            f"🌐 Circle: {res['circle']}\n"
-            f"🆔 ID: {res['id']}"
+        await context.bot.send_message(
+            SEARCH_LOGS_CHANNEL,
+            f"📱 Number Search\n\n"
+            f"👤 User: {update.effective_user.first_name} ({user_id})\n"
+            f"🔍 Number: {number}\n"
+            f"📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         )
-        await msg.answer(format_response("📱 NUMBER SEARCH RESULT", body))
-        log_query(user_id, number, body)
-    except:
-        await msg.answer("No info found.")
-
-async def handle_pak(msg, number):
-    user_id = msg.from_user.id
-    api_url = f"https://pak-num-api.vercel.app/search?number={number}"
-    data = await fetch_api(api_url)
+    except Exception as e:
+        logger.error(f"Failed to log search: {e}")
+    
+    processing_message = await update.message.reply_text("🔍 Searching for number information...")
+    
     try:
-        items = data['results']
-        msg_text = ""
-        for idx, item in enumerate(items, 1):
-            msg_text += (
-                f"{idx}️⃣\n👤 Name: {item['Name']}\n🆔 CNIC: {item['CNIC']}\n📞 Mobile: {item['Mobile']}\n"
-                f"🏠 Address: {item['Address'] if item['Address'] else '(Not Available)'}\n"
+        response = requests.get(API_ENDPOINTS["num_info"].format(number=number), timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        if "data" in data and len(data["data"]) > 0:
+            result = data["data"][0]
+            
+            formatted_response = (
+                f"📱 **NUMBER DETAILS**\n\n"
+                f"📞 **MOBILE:** {result.get('mobile', 'N/A')}\n"
+                f"📞 **ALT MOBILE:** {result.get('alt', 'N/A')}\n"
+                f"👤 **NAME:** {result.get('name', 'N/A')}\n"
+                f"👤 **FULL NAME:** {result.get('fname', 'N/A')}\n"
+                f"🏠 **ADDRESS:** {result.get('address', 'N/A').replace('!', ', ')}\n"
+                f"📡 **CIRCLE:** {result.get('circle', 'N/A')}\n"
+                f"🆔 **ID:** {result.get('id', 'N/A')}\n\n"
+                f"📊 Data provided by @DataTraceUpdates\n"
+                f"📞 Contact Admin: @{ADMIN_CONTACT}"
             )
-        await msg.answer(format_response("🇵🇰 PAKISTAN SEARCH RESULT", msg_text))
-        log_query(user_id, number, msg_text)
-    except:
-        await msg.answer("No info found.")
-
-async def handle_aadhar(msg, number):
-    user_id = msg.from_user.id
-    api_url = f"http://osintx.info/API/krobetahack.php?key=SHAD0WINT3L&type=id_number&term={number}"
-    data = await fetch_api(api_url)
-    try:
-        res = data['data'][0]
-        body = (
-            f"📞 Mobile: {res['mobile']} | Alt: {res['alt']}\n"
-            f"👤 Name: {res['name']}\n"
-            f"🧾 Full Name: {res['fname']}\n"
-            f"🏠 Address: {res['address'].replace('!', ', ')}\n"
-            f"🌐 Circle: {res['circle']}\n"
-            f"🆔 ID: {res['id']}"
-        )
-        await msg.answer(format_response("🆔 AADHAR SEARCH RESULT", body))
-        log_query(user_id, number, body)
-    except:
-        await msg.answer("No info found.")
-
-async def handle_aadhar2fam(msg, number):
-    user_id = msg.from_user.id
-    api_url = f"https://family-members-n5um.vercel.app/fetch?aadhaar={number}&key=paidchx"
-    data = await fetch_api(api_url)
-    try:
-        lst = data['memberDetailsList']
-        members_txt = ""
-        for idx, m in enumerate(lst, 1):
-            members_txt += f"{idx}️⃣ {m['memberName']} — {m['releationship_name']}\n"
-        body = (
-            f"RC ID: {data['rcId']}\nScheme: {data['schemeName']}\nDistrict: {data['homeDistName']}\n"
-            f"State: {data['homeStateName']}\nFPS ID: {data['fpsId']}\n\n👨‍👩‍👧 FAMILY MEMBERS:\n{members_txt}"
-        )
-        await msg.answer(format_response("🆔 AADHAR FAMILY SEARCH RESULT", body))
-        log_query(user_id, number, body)
-    except:
-        await msg.answer("No info found.")
-
-async def handle_upi(msg, vpa):
-    user_id = msg.from_user.id
-    api_url = f"https://upi-info.vercel.app/api/upi?upi_id={vpa}&key=456"
-    data = await fetch_api(api_url)
-    try:
-        bd = data['bank_details_raw']
-        vd = data['vpa_details']
-        body = (
-            f"👤 Name: {vd['name']}\n💳 VPA: {vd['vpa']}\n🏦 Bank: {bd['BANK']} ({bd['BRANCH']})\n"
-            f"📍 Address: {bd['ADDRESS']}\nIFSC: {bd['IFSC']} | MICR: {bd['MICR']}"
-        )
-        await msg.answer(format_response("🏦 UPI SEARCH RESULT", body))
-        log_query(user_id, vpa, body)
-    except:
-        await msg.answer("No info found.")
-
-async def handle_ip(msg, ip):
-    user_id = msg.from_user.id
-    api_url = f"https://karmali.serv00.net/ip_api.php?ip={ip}"
-    data = await fetch_api(api_url)
-    try:
-        body = (
-            f"🌍 Country: {data['country']} ({data['countryCode']})\n"
-            f"📍 Region: {data['regionName']}, City: {data['city']}\n"
-            f"📮 Zip: {data['zip']}\n🕒 Timezone: {data['timezone']}\n"
-            f"📡 ISP: {data['isp']}\n🔥 Org: {data['org']}\nAS: {data['as']}\nIP: {data['query']}"
-        )
-        await msg.answer(format_response("🛰 IP SEARCH RESULT", body))
-        log_query(user_id, ip, body)
-    except:
-        await msg.answer("No info found.")
-
-async def handle_tgstats(msg, tg_id):
-    user_id = msg.from_user.id
-    api_url = f"https://tg-info-neon.vercel.app/user-details?user={tg_id}"
-    data = await fetch_api(api_url)
-    try:
-        d = data['data']
-        body = (
-            f"Name: {d['first_name']}\nUser ID: {d['id']}\nActive: {'✅' if d['is_active'] else '❌'}\nBot: {'✅' if d['is_bot'] else '❌'}\n\n"
-            f"📊 Stats:\nGroups Joined: {d['total_groups']}\nAdmin in: {d['adm_in_groups']}\nTotal Messages: {d['total_msg_count']}\n"
-            f"Messages in Groups: {d['msg_in_groups_count']}\nName Changes: {d['names_count']}\nUsername Changes: {d['usernames_count']}\n"
-            f"🕐 First Msg: {d['first_msg_date']}\n🕐 Last Msg: {d['last_msg_date']}"
-        )
-        await msg.answer(format_response("👤 TELEGRAM USER STATS", body))
-        log_query(user_id, tg_id, body)
-    except:
-        await msg.answer("No info found.")
-
-async def handle_callhistory(msg, number):
-    user_id = msg.from_user.id
-    u = get_user(user_id)
-    if not u or u[1] < CALL_HISTORY_PRICE:
-        await msg.answer(f"Call history is paid only: ₹{CALL_HISTORY_PRICE}/search. Not enough credits.\nContact Admin.")
-        return
-    api_url = f"https://my-vercel-flask-qmfgrzwdl-okvaipro-svgs-projects.vercel.app/api/call_statement?number={number}&days=7"
-    data = await fetch_api(api_url)
-    await msg.answer(format_response("📞 CALL HISTORY", str(data)))
-    log_query(user_id, number, str(data))
-    update_credits(user_id, -CALL_HISTORY_PRICE)
-
-# --- Main Message Handler ---
-@dp.message_handler()
-async def main_handler(msg: types.Message):
-    user_id = msg.from_user.id
-    chat_id = msg.chat.id
-    txt = msg.text.strip()
-    u = get_user(user_id)
-    # In group: reply only if tagged, command, or number
-    if msg.chat.type in ["group", "supergroup"]:
-        if (msg.reply_to_message and msg.reply_to_message.from_user.id == bot.id) or \
-           (msg.text.startswith("/") or re.search(r"\+91\d{10}|\d{10}|\+92\d{10}|@|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}", txt)):
-            pass
+            
+            await processing_message.edit_text(formatted_response, parse_mode='Markdown')
         else:
-            return
-    # Credits enforcement (except support group)
-    if msg.chat.type == "private":
-        # Free searches first
-        free_searches = get_free_searches(user_id)
-        if free_searches > 0:
-            update_free_searches(user_id, -1)
-        elif not u or u[1] <= 0:
-            await msg.answer("Not enough credits! Refer friends or buy credits.", reply_markup=main_menu(*get_user_status(user_id)))
-            return
-    # Blacklist/protected logic
-    if any(num in txt for num in BLACKLIST_NUMBERS):
-        await msg.answer("Blacklisted number. No result.")
-        return
-    if txt in PROTECTED_NUMBERS and user_id != OWNER_ID:
-        await msg.answer("Protected number. No result.")
-        return
-    # API triggers
-    if re.match(r"^(\+91)?\d{10}$", txt):
-        await handle_number(msg, txt)
-        log_query(user_id, txt, "search")
-        await bot.send_message(LOG_CHANNEL, f"User {user_id} searched: {txt}")
-        return
-    if txt.startswith("+92") or (txt.isdigit() and len(txt) == 12 and txt.startswith("92")):
-        await handle_pak(msg, txt)
-        log_query(user_id, txt, "search")
-        await bot.send_message(LOG_CHANNEL, f"User {user_id} searched: {txt}")
-        return
-    if re.match(r"^\d{12}$", txt):
-        await handle_aadhar(msg, txt)
-        log_query(user_id, txt, "search")
-        await bot.send_message(LOG_CHANNEL, f"User {user_id} searched: {txt}")
-        return
-    if "@" in txt and not txt.startswith("/"):
-        await handle_upi(msg, txt)
-        log_query(user_id, txt, "search")
-        await bot.send_message(LOG_CHANNEL, f"User {user_id} searched: {txt}")
-        return
-    if re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", txt):
-        await handle_ip(msg, txt)
-        log_query(user_id, txt, "search")
-        await bot.send_message(LOG_CHANNEL, f"User {user_id} searched: {txt}")
-        return
-    await msg.answer("Unknown command or input. Use /help.", reply_markup=main_menu(*get_user_status(user_id)))
+            await processing_message.edit_text("❌ No information found for this number.")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"API request failed: {e}")
+        await processing_message.edit_text("❌ The API is currently down. Please try again later.")
+    except Exception as e:
+        logger.error(f"Error processing number info: {e}")
+        await processing_message.edit_text("❌ An error occurred while processing your request.")
 
-if __name__ == "__main__":
-    executor.start_polling(dp, skip_updates=True)
+async def process_pak_num_info(update: Update, context: ContextTypes.DEFAULT_TYPE, number: str):
+    """Process Pakistan number information request"""
+    user_id = update.effective_user.id
+    
+    if number in blacklisted_numbers:
+        await update.message.reply_text("❌ This number is blacklisted and cannot be searched.")
+        return
+    
+    if number in protected_numbers and user_id != OWNER_ID:
+        await update.message.reply_text("❌ This number is protected and cannot be searched.")
+        return
+    
+    if number.startswith("+92"):
+        number = number[3:]
+    
+    credits_db[user_id] -= 1
+    
+    try:
+        await context.bot.send_message(
+            SEARCH_LOGS_CHANNEL,
+            f"🇵🇰 Pakistan Number Search\n\n"
+            f"👤 User: {update.effective_user.first_name} ({user_id})\n"
+            f"🔍 Number: {number}\n"
+            f"📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+    except Exception as e:
+        logger.error(f"Failed to log search: {e}")
+    
+    processing_message = await update.message.reply_text("🔍 Searching for Pakistan number information...")
+    
+    try:
+        response = requests.get(API_ENDPOINTS["pak_num_info"].format(number=number), timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        if "results" in data and len(data["results"]) > 0:
+            formatted_response = "🇵🇰 **PAKISTAN INFO**\n\n"
+            
+            for i, result in enumerate(data["results"], 1):
+                formatted_response += (
+                    f"{i}️⃣\n"
+                    f"👤 **NAME:** {result.get('Name', 'N/A')}\n"
+                    f"🆔 **CNIC:** {result.get('CNIC', 'N/A')}\n"
+                    f"📞 **MOBILE:** {result.get('Mobile', 'N/A')}\n"
+                    f"🏠 **ADDRESS:** {result.get('Address', 'Not Available')}\n\n"
+                )
+            
+            formatted_response += (
+                f"📊 Data provided by @DataTraceUpdates\n"
+                f"📞 Contact Admin: @{ADMIN_CONTACT}"
+            )
+            
+            await processing_message.edit_text(formatted_response, parse_mode='Markdown')
+        else:
+            await processing_message.edit_text("❌ No information found for this number.")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"API request failed: {e}")
+        await processing_message.edit_text("❌ The API is currently down. Please try again later.")
+    except Exception as e:
+        logger.error(f"Error processing Pakistan number info: {e}")
+        await processing_message.edit_text("❌ An error occurred while processing your request.")
 
-def admin_menu(is_owner=False):
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(
-        InlineKeyboardButton("🚫 Ban User", callback_data="banuser"),
-        InlineKeyboardButton("✅ Unban User", callback_data="unbanuser"),
-        InlineKeyboardButton("📢 Broadcast", callback_data="gcast"),
-        InlineKeyboardButton("📊 Stats", callback_data="stats"),
-        InlineKeyboardButton("👑 Sudo List", callback_data="sudolist"),
-        InlineKeyboardButton("📋 All Logs", callback_data="alllogs"),
-        InlineKeyboardButton("⬅️ Back", callback_data="back"),
+async def process_aadhar_details(update: Update, context: ContextTypes.DEFAULT_TYPE, aadhaar: str):
+    """Process Aadhaar details request"""
+    user_id = update.effective_user.id
+    credits_db[user_id] -= 1
+    
+    try:
+        await context.bot.send_message(
+            SEARCH_LOGS_CHANNEL,
+            f"🆔 Aadhaar Search\n\n"
+            f"👤 User: {update.effective_user.first_name} ({user_id})\n"
+            f"🔍 Aadhaar: {aadhaar[:4]}XXXX{aadhaar[-4:] if len(aadhaar) > 8 else ''}\n"
+            f"📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+    except Exception as e:
+        logger.error(f"Failed to log search: {e}")
+    
+    processing_message = await update.message.reply_text("🔍 Searching for Aadhaar details...")
+    
+    try:
+        response = requests.get(API_ENDPOINTS["aadhar_details"].format(aadhaar=aadhaar), timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        if isinstance(data, list) and len(data) > 0:
+            formatted_response = "🆔 **AADHAR DETAILS**\n\n"
+            
+            for i, result in enumerate(data, 1):
+                formatted_response += (
+                    f"{i}️⃣\n"
+                    f"📞 **MOBILE:** {result.get('mobile', 'N/A')}\n"
+                    f"👤 **NAME:** {result.get('name', 'N/A')}\n"
+                    f"👨 **FATHER'S NAME:** {result.get('father_name', 'N/A')}\n"
+                    f"🏠 **ADDRESS:** {result.get('address', 'N/A').replace('!', ', ')}\n"
+                    f"📞 **ALT MOBILE:** {result.get('alt_mobile', 'N/A')}\n"
+                    f"📡 **CIRCLE:** {result.get('circle', 'N/A')}\n"
+                    f"🆔 **ID NUMBER:** {result.get('id_number', 'N/A')}\n"
+                    f"📧 **EMAIL:** {result.get('email', 'N/A')}\n\n"
+                )
+            
+            formatted_response += (
+                f"📊 Data provided by @DataTraceUpdates\n"
+                f"📞 Contact Admin: @{ADMIN_CONTACT}"
+            )
+            
+            await processing_message.edit_text(formatted_response, parse_mode='Markdown')
+        else:
+            await processing_message.edit_text("❌ No information found for this Aadhaar number.")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"API request failed: {e}")
+        await processing_message.edit_text("❌ The API is currently down. Please try again later.")
+    except Exception as e:
+        logger.error(f"Error processing Aadhar details: {e}")
+        await processing_message.edit_text("❌ An error occurred while processing your request.")
+
+async def process_aadhar_family(update: Update, context: ContextTypes.DEFAULT_TYPE, aadhaar: str):
+    """Process Aadhaar family information request"""
+    user_id = update.effective_user.id
+    credits_db[user_id] -= 1
+    
+    try:
+        await context.bot.send_message(
+            SEARCH_LOGS_CHANNEL,
+            f"👨‍👩‍👧 Aadhaar Family Search\n\n"
+            f"👤 User: {update.effective_user.first_name} ({user_id})\n"
+            f"🔍 Aadhaar: {aadhaar[:4]}XXXX{aadhaar[-4:] if len(aadhaar) > 8 else ''}\n"
+            f"📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+    except Exception as e:
+        logger.error(f"Failed to log search: {e}")
+    
+    processing_message = await update.message.reply_text("🔍 Searching for Aadhaar family information...")
+    
+    try:
+        response = requests.get(API_ENDPOINTS["aadhar_family"].format(aadhaar=aadhaar), timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        if "memberDetailsList" in data and len(data["memberDetailsList"]) > 0:
+            formatted_response = (
+                f"🆔 **AADHAR FAMILY INFO**\n\n"
+                f"🆔 **RC ID:** {data.get('rcId', 'N/A')}\n"
+                f"📋 **SCHEME:** {data.get('schemeName', 'N/A')} ({data.get('scheme', 'N/A')})\n"
+                f"🏙️ **DISTRICT:** {data.get('homeDistName', 'N/A')}\n"
+                f"🌍 **STATE:** {data.get('homeStateName', 'N/A')}\n"
+                f"🏪 **FPS ID:** {data.get('fpsId', 'N/A')}\n\n"
+                f"👨‍👩‍👧 **FAMILY MEMBERS:**\n"
+            )
+            
+            for i, member in enumerate(data["memberDetailsList"], 1):
+                formatted_response += (
+                    f"{i}️⃣ {member.get('memberName', 'N/A')} — {member.get('releationship_name', 'N/A')}\n"
+                )
+            
+            formatted_response += (
+                f"\n📊 Data provided by @DataTraceUpdates\n"
+                f"📞 Contact Admin: @{ADMIN_CONTACT}"
+            )
+            
+            await processing_message.edit_text(formatted_response, parse_mode='Markdown')
+        else:
+            await processing_message.edit_text("❌ No information found for this Aadhaar number.")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"API request failed: {e}")
+        await processing_message.edit_text("❌ The API is currently down. Please try again later.")
+    except Exception as e:
+        logger.error(f"Error processing Aadhar family info: {e}")
+        await processing_message.edit_text("❌ An error occurred while processing your request.")
+
+async def process_upi_info(update: Update, context: ContextTypes.DEFAULT_TYPE, upi_id: str):
+    """Process UPI information request"""
+    user_id = update.effective_user.id
+    credits_db[user_id] -= 1
+    
+    try:
+        await context.bot.send_message(
+            SEARCH_LOGS_CHANNEL,
+            f"💳 UPI Search\n\n"
+            f"👤 User: {update.effective_user.first_name} ({user_id})\n"
+            f"🔍 UPI ID: {upi_id}\n"
+            f"📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+    except Exception as e:
+        logger.error(f"Failed to log search: {e}")
+    
+    processing_message = await update.message.reply_text("🔍 Searching for UPI information...")
+    
+    try:
+        response = requests.get(API_ENDPOINTS["upi_info"].format(upi_id=upi_id), timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        if "bank_details_raw" in data and "vpa_details" in data:
+            bank_details = data["bank_details_raw"]
+            vpa_details = data["vpa_details"]
+            
+            formatted_response = (
+                f"🏦 **BANK DETAILS**\n\n"
+                f"🏠 **ADDRESS:** {bank_details.get('ADDRESS', 'N/A')}\n"
+                f"🏦 **BANK:** {bank_details.get('BANK', 'N/A')}\n"
+                f"🔢 **BANKCODE:** {bank_details.get('BANKCODE', 'N/A')}\n"
+                f"🏢 **BRANCH:** {bank_details.get('BRANCH', 'N/A')}\n"
+                f"🌆 **CENTRE:** {bank_details.get('CENTRE', 'N/A')}\n"
+                f"🏙️ **CITY:** {bank_details.get('CITY', 'N/A')}\n"
+                f"📞 **CONTACT:** {bank_details.get('CONTACT', 'N/A')}\n"
+                f"🗺️ **DISTRICT:** {bank_details.get('DISTRICT', 'N/A')}\n"
+                f"🔢 **IFSC:** {bank_details.get('IFSC', 'N/A')}\n"
+                f"📟 **MICR:** {bank_details.get('MICR', 'N/A')}\n"
+                f"🌍 **STATE:** {bank_details.get('STATE', 'N/A')}\n"
+                f"💸 **IMPS:** {'✅' if bank_details.get('IMPS') else '❌'}\n"
+                f"💸 **NEFT:** {'✅' if bank_details.get('NEFT') else '❌'}\n"
+                f"💸 **RTGS:** {'✅' if bank_details.get('RTGS') else '❌'}\n"
+                f"💸 **UPI:** {'✅' if bank_details.get('UPI') else '❌'}\n"
+                f"💸 **SWIFT:** {bank_details.get('SWIFT', 'N/A')}\n\n"
+                f"👤 **ACCOUNT HOLDER**\n\n"
+                f"🔢 **IFSC:** {vpa_details.get('ifsc', 'N/A')}\n"
+                f"👤 **NAME:** {vpa_details.get('name', 'N/A')}\n"
+                f"💳 **VPA:** {vpa_details.get('vpa', 'N/A')}\n\n"
+                f"📊 Data provided by @DataTraceUpdates\n"
+                f"📞 Contact Admin: @{ADMIN_CONTACT}"
+            )
+            
+            await processing_message.edit_text(formatted_response, parse_mode='Markdown')
+        else:
+            await processing_message.edit_text("❌ No information found for this UPI ID.")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"API request failed: {e}")
+        await processing_message.edit_text("❌ The API is currently down. Please try again later.")
+    except Exception as e:
+        logger.error(f"Error processing UPI info: {e}")
+        await processing_message.edit_text("❌ An error occurred while processing your request.")
+
+async def process_ip_details(update: Update, context: ContextTypes.DEFAULT_TYPE, ip_address: str):
+    """Process IP details request"""
+    user_id = update.effective_user.id
+    credits_db[user_id] -= 1
+    
+    try:
+        await context.bot.send_message(
+            SEARCH_LOGS_CHANNEL,
+            f"🌐 IP Search\n\n"
+            f"👤 User: {update.effective_user.first_name} ({user_id})\n"
+            f"🔍 IP: {ip_address}\n"
+            f"📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+    except Exception as e:
+        logger.error(f"Failed to log search: {e}")
+    
+    processing_message = await update.message.reply_text("🔍 Searching for IP details...")
+    
+    try:
+        response = requests.get(API_ENDPOINTS["ip_details"].format(ip=ip_address), timeout=10)
+        response.raise_for_status()
+        data = response.text
+        
+        if data:
+            formatted_response = (
+                f"{data}\n\n"
+                f"📊 Data provided by @DataTraceUpdates\n"
+                f"📞 Contact Admin: @{ADMIN_CONTACT}"
+            )
+            
+            await processing_message.edit_text(formatted_response)
+        else:
+            await processing_message.edit_text("❌ No information found for this IP address.")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"API request failed: {e}")
+        await processing_message.edit_text("❌ The API is currently down. Please try again later.")
+    except Exception as e:
+        logger.error(f"Error processing IP details: {e}")
+        await processing_message.edit_text("❌ An error occurred while processing your request.")
+
+async def process_tg_user_stats(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id_str: str):
+    """Process Telegram user stats request"""
+    user_id = update.effective_user.id
+    credits_db[user_id] -= 1
+    
+    try:
+        await context.bot.send_message(
+            SEARCH_LOGS_CHANNEL,
+            f"👤 Telegram User Stats Search\n\n"
+            f"👤 User: {update.effective_user.first_name} ({user_id})\n"
+            f"🔍 Target User ID: {user_id_str}\n"
+            f"📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+    except Exception as e:
+        logger.error(f"Failed to log search: {e}")
+    
+    processing_message = await update.message.reply_text("🔍 Searching for Telegram user stats...")
+    
+    try:
+        response = requests.get(API_ENDPOINTS["tg_user_stats"].format(user_id=user_id_str), timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        if data.get("success") and "data" in data:
+            user_data = data["data"]
+            
+            formatted_response = (
+                f"👤 **TELEGRAM USER STATS**\n\n"
+                f"👤 **NAME:** {user_data.get('first_name', 'N/A')} {user_data.get('last_name', '')}\n"
+                f"🆔 **USER ID:** {user_data.get('id', 'N/A')}\n"
+                f"🤖 **IS BOT:** {'✅' if user_data.get('is_bot') else '❌'}\n"
+                f"🟢 **ACTIVE:** {'✅' if user_data.get('is_active') else '❌'}\n\n"
+                f"📊 **STATS**\n\n"
+                f"👥 **TOTAL GROUPS:** {user_data.get('total_groups', 'N/A')}\n"
+                f"👑 **ADMIN IN GROUPS:** {user_data.get('adm_in_groups', 'N/A')}\n"
+                f"💬 **TOTAL MESSAGES:** {user_data.get('total_msg_count', 'N/A')}\n"
+                f"💬 **MESSAGES IN GROUPS:** {user_data.get('msg_in_groups_count', 'N/A')}\n"
+                f"🕐 **FIRST MSG DATE:** {user_data.get('first_msg_date', 'N/A')}\n"
+                f"🕐 **LAST MSG DATE:** {user_data.get('last_msg_date', 'N/A')}\n"
+                f"📝 **NAME CHANGES:** {user_data.get('names_count', 'N/A')}\n"
+                f"📝 **USERNAME CHANGES:** {user_data.get('usernames_count', 'N/A')}\n\n"
+                f"📊 Data provided by @DataTraceUpdates\n"
+                f"📞 Contact Admin: @{ADMIN_CONTACT}"
+            )
+            
+            await processing_message.edit_text(formatted_response, parse_mode='Markdown')
+        else:
+            await processing_message.edit_text("❌ No information found for this user ID.")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"API request failed: {e}")
+        await processing_message.edit_text("❌ The API is currently down. Please try again later.")
+    except Exception as e:
+        logger.error(f"Error processing TG user stats: {e}")
+        await processing_message.edit_text("❌ An error occurred while processing your request.")
+
+async def process_call_history(update: Update, context: ContextTypes.DEFAULT_TYPE, number: str):
+    """Process call history request"""
+    user_id = update.effective_user.id
+    
+    if user_id not in credits_db or credits_db[user_id] < 600:
+        await update.message.reply_text(
+            "❌ You don't have enough credits for this service.\n\n"
+            "💰 Call history requires 600 credits.\n"
+            "Buy more credits to use this service."
+        )
+        return
+    
+    if number in blacklisted_numbers:
+        await update.message.reply_text("❌ This number is blacklisted and cannot be searched.")
+        return
+    
+    if number in protected_numbers and user_id != OWNER_ID:
+        await update.message.reply_text("❌ This number is protected and cannot be searched.")
+        return
+    
+    if number.startswith("+91"):
+        number = number[3:]
+    
+    credits_db[user_id] -= 600
+    
+    try:
+        await context.bot.send_message(
+            SEARCH_LOGS_CHANNEL,
+            f"📞 Call History Search\n\n"
+            f"👤 User: {update.effective_user.first_name} ({user_id})\n"
+            f"🔍 Number: {number}\n"
+            f"📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+    except Exception as e:
+        logger.error(f"Failed to log search: {e}")
+    
+    processing_message = await update.message.reply_text("🔍 Searching for call history...")
+    
+    try:
+        response = requests.get(API_ENDPOINTS["call_history"].format(number=number), timeout=15)
+        response.raise_for_status()
+        data = response.json()
+        
+        if data:
+            formatted_response = (
+                f"📞 **CALL HISTORY**\n\n"
+                f"📞 **NUMBER:** {number}\n\n"
+                f"📊 **CALL DETAILS:**\n"
+                f"```json\n{json.dumps(data, indent=2)}\n```\n\n"
+                f"📊 Data provided by @DataTraceUpdates\n"
+                f"📞 Contact Admin: @{ADMIN_CONTACT}"
+            )
+            
+            await processing_message.edit_text(formatted_response, parse_mode='Markdown')
+        else:
+            await processing_message.edit_text("❌ No call history found for this number.")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"API request failed: {e}")
+        await processing_message.edit_text("❌ The API is currently down. Please try again later.")
+    except Exception as e:
+        logger.error(f"Error processing call history: {e}")
+        await processing_message.edit_text("❌ An error occurred while processing your request.")
+
+# --- Command Handlers ---
+async def num_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.args:
+        await process_number_info(update, context, context.args[0])
+    else:
+        await update.message.reply_text("Please provide a number after the command.\n\nExample: /num 9876543210")
+
+async def pak_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.args:
+        await process_pak_num_info(update, context, context.args[0])
+    else:
+        await update.message.reply_text("Please provide a Pakistan number after the command.\n\nExample: /pak 923001234567")
+
+async def aadhar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.args:
+        await process_aadhar_details(update, context, context.args[0])
+    else:
+        await update.message.reply_text("Please provide an Aadhaar number after the command.\n\nExample: /aadhar 123456789012")
+
+async def aadhar2fam_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.args:
+        await process_aadhar_family(update, context, context.args[0])
+    else:
+        await update.message.reply_text("Please provide an Aadhaar number after the command.\n\nExample: /aadhar2fam 123456789012")
+
+async def upi_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.args:
+        await process_upi_info(update, context, context.args[0])
+    else:
+        await update.message.reply_text("Please provide a UPI ID after the command.\n\nExample: /upi example@upi")
+
+async def ip_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.args:
+        await process_ip_details(update, context, context.args[0])
+    else:
+        await update.message.reply_text("Please provide an IP address after the command.\n\nExample: /ip 8.8.8.8")
+
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.args:
+        await process_tg_user_stats(update, context, context.args[0])
+    else:
+        await update.message.reply_text("Please provide a user ID after the command.\n\nExample: /stats 123456789")
+
+async def call_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.args:
+        await process_call_history(update, context, context.args[0])
+    else:
+        await update.message.reply_text("Please provide a number after the command.\n\nExample: /call 9876543210")
+
+async def balance_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    credits = credits_db.get(user_id, 0)
+    await update.message.reply_text(
+        f"💳 **Your Credit Balance:** {credits} credits\n\n"
+        f"💰 Buy more credits or refer friends to earn free credits."
     )
-    if is_owner:
-        kb.add(
-            InlineKeyboardButton("🔐 Protected Numbers", callback_data="protectednums"),
-            InlineKeyboardButton("🖤 Blacklist Numbers", callback_data="blacklistnums"),
+
+async def referral_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    referral_link = f"https://t.me/{context.bot.username}?start={user_id}"
+    referral_count = len(referrals_db.get(str(user_id), []))
+    await update.message.reply_text(
+        f"👥 **Referral Program**\n\n"
+        f"🔗 **Your Referral Link:** {referral_link}\n\n"
+        f"📊 **Your Referrals:** {referral_count}\n\n"
+        f"🎁 **Referral Benefits:**\n"
+        f"• 1 credit for each person who joins using your link\n"
+        f"• 30% commission (in credits) when your referrals buy credits\n\n"
+        f"**Example:**\n"
+        f"• Friend joins → They get 1 free credit\n"
+        f"• Friend buys 1000 credits → You get 300 credits commission\n"
+        f"• Friend buys 5000 credits → You get 1500 credits commission"
+    )
+
+async def protect_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        f"🛡️ **Protect Your Data**\n\n"
+        f"For ₹300, you can protect your personal information from being searched through this bot.\n\n"
+        f"Contact @{ADMIN_CONTACT} to proceed with data protection."
+    )
+
+async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        f"📞 **Contact Admin**\n\n"
+        f"For any queries or support, please contact:\n"
+        f"@{ADMIN_CONTACT}"
+    )
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    help_text = (
+        "📖 **Help & Commands**\n\n"
+        "🔍 **Lookup Commands:**\n"
+        "• /num [number] - Get number information\n"
+        "• /pak [number] - Get Pakistan number information\n"
+        "• /aadhar [aadhaar] - Get Aadhaar details\n"
+        "• /aadhar2fam [aadhaar] - Get Aadhaar family information\n"
+        "• /upi [upi_id] - Get UPI information\n"
+        "• /ip [ip_address] - Get IP details\n"
+        "• /stats [user_id] - Get Telegram user stats\n"
+        "• /call [number] - Get call history (Paid - 600 credits)\n\n"
+        "💰 **Credit Commands:**\n"
+        "• /balance - Check your credit balance\n"
+        "• /buy - Buy credits\n\n"
+        "👥 **Referral Commands:**\n"
+        "• /referral - Get your referral link\n\n"
+        "🛡️ **Protection Commands:**\n"
+        "• /protect - Protect your data\n\n"
+        "📞 **Contact:**\n"
+        "• /admin - Contact admin\n\n"
+        "ℹ️ You can also use the bot by directly sending a number or UPI ID without commands."
+    )
+    await update.message.reply_text(help_text)
+
+# --- Admin Commands ---
+async def add_credits_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in SUDO_USERS:
+        await update.message.reply_text("❌ This command is for admins only.")
+        return
+    
+    if len(context.args) < 2:
+        await update.message.reply_text("Usage: /addcredits [user_id] [credits]")
+        return
+    
+    target_user_id = int(context.args[0])
+    credits_to_add = int(context.args[1])
+    
+    if target_user_id in credits_db:
+        credits_db[target_user_id] += credits_to_add
+    else:
+        credits_db[target_user_id] = credits_to_add
+    
+    await update.message.reply_text(f"✅ Added {credits_to_add} credits to user {target_user_id}.")
+    
+    try:
+        await context.bot.send_message(
+            target_user_id,
+            f"🎉 You've received {credits_to_add} credits from an admin!\n"
+            f"Your current balance: {credits_db[target_user_id]} credits"
         )
-    return kb
+    except Exception as e:
+        logger.error(f"Failed to notify user about added credits: {e}")
 
-async def check_channels(user_id):
-    # Stub: always returns True, but you can implement real channel membership check with get_chat_member
-    return True
-
-def get_user_status(user_id):
-    is_admin = user_id in SUDO_IDS
-    is_owner = user_id == OWNER_ID
-    return is_admin, is_owner
-
-@dp.message_handler(commands=['start'])
-async def start_cmd(msg: types.Message):
-    user_id = msg.from_user.id
-    ref_by = None
-    args = msg.get_args()
-    if args:
-        try:
-            ref_by = int(args)
-            if ref_by != user_id:
-                add_user(user_id, ref_by)
-                update_credits(user_id, 1)
-                update_credits(ref_by, 1)
-        except: add_user(user_id)
-    else:
-        add_user(user_id)
-    if not await check_channels(user_id):
-        await msg.answer("Join required channels to use the bot:\n" +
-                         "\n".join([f"@{x}" for x in MANDATORY_CHANNELS]))
+async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in SUDO_USERS:
+        await update.message.reply_text("❌ This command is for admins only.")
         return
-    await bot.send_message(START_CHANNEL, f"User started: {user_id}")
-    is_admin, _ = get_user_status(user_id)
-    await msg.answer(
-        "👋 <b>Welcome to DataTraceOSINT!</b>\n\n"
-        "You have 2 free searches in DM. Refer friends or buy cheap credits to unlock more.\n\n"
-        "Channels required: @DataTraceUpdates & @DataTraceOSINTSupport\n\n"
-        "Use commands or buttons below.",
-        reply_markup=user_menu(is_admin))
+    
+    if len(context.args) < 1:
+        await update.message.reply_text("Usage: /ban [user_id]")
+        return
+    
+    target_user_id = int(context.args[0])
+    if target_user_id in users_db:
+        users_db[target_user_id]["banned"] = True
+        await update.message.reply_text(f"✅ User {target_user_id} has been banned.")
+    else:
+        await update.message.reply_text(f"❌ User {target_user_id} not found in database.")
 
-@dp.callback_query_handler(lambda c: True)
-async def cb_handler(call: types.CallbackQuery):
-    user_id = call.from_user.id
-    is_admin, is_owner = get_user_status(user_id)
-    if call.data == "back":
-        await call.message.edit_text("Choose an action:", reply_markup=user_menu(is_admin))
-    elif call.data == "buycredits":
-        await call.message.edit_text(
-            f"<b>Buy Credits:</b>\n{price_table()}\n\nContact {ADMIN_CONTACT} to buy.",
-            reply_markup=user_menu(is_admin))
-    elif call.data == "referral":
-        ref_link = f"https://t.me/YourBotName?start={user_id}"
-        count = get_referrals(user_id)
-        await call.message.edit_text(
-            f"<b>Your Referral Link:</b>\n{ref_link}\n\nTotal referrals: {count}\n\n"
-            "Earn 30% commission when referrals buy credits!",
-            reply_markup=user_menu(is_admin))
-    elif call.data == "protect":
-        u = get_user(user_id)
-        if u and u[1] < PROTECT_PRICE:
-            await call.message.edit_text("Need 300 credits to protect your details.", reply_markup=user_menu(is_admin))
+async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in SUDO_USERS:
+        await update.message.reply_text("❌ This command is for admins only.")
+        return
+    
+    if len(context.args) < 1:
+        await update.message.reply_text("Usage: /unban [user_id]")
+        return
+    
+    target_user_id = int(context.args[0])
+    if target_user_id in users_db:
+        users_db[target_user_id]["banned"] = False
+        await update.message.reply_text(f"✅ User {target_user_id} has been unbanned.")
+    else:
+        await update.message.reply_text(f"❌ User {target_user_id} not found in database.")
+
+async def sudo_list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in SUDO_USERS:
+        await update.message.reply_text("❌ This command is for admins only.")
+        return
+    
+    sudo_list = "\n".join([f"• {sudo_id}" for sudo_id in SUDO_USERS])
+    await update.message.reply_text(f"👑 **Sudo Users List:**\n\n{sudo_list}")
+
+async def protected_numbers_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id != OWNER_ID:
+        await update.message.reply_text("❌ This command is for the owner only.")
+        return
+    
+    protected_list = "\n".join([f"• {number}" for number in protected_numbers])
+    await update.message.reply_text(f"🛡️ **Protected Numbers List:**\n\n{protected_list}")
+
+async def stats_count_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in SUDO_USERS:
+        await update.message.reply_text("❌ This command is for sudo users only.")
+        return
+    
+    total_users = len(users_db)
+    total_credits = sum(credits_db.values())
+    total_referrals = sum(len(referrals) for referrals in referrals_db.values())
+    
+    await update.message.reply_text(
+        f"📊 **Bot Statistics:**\n\n"
+        f"👥 **Total Users:** {total_users}\n"
+        f"💳 **Total Credits Distributed:** {total_credits}\n"
+        f"👥 **Total Referrals:** {total_referrals}\n"
+        f"📅 **Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    )
+
+async def gcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in SUDO_USERS:
+        await update.message.reply_text("❌ This command is for sudo users only.")
+        return
+    
+    if len(context.args) < 1:
+        await update.message.reply_text("Usage: /gcast [message]")
+        return
+    
+    message = " ".join(context.args)
+    success_count = 0
+    fail_count = 0
+    
+    await update.message.reply_text("📢 Broadcasting message to all users...")
+    
+    for uid in users_db:
+        try:
+            await context.bot.send_message(uid, message)
+            success_count += 1
+        except Exception as e:
+            logger.error(f"Failed to send message to {uid}: {e}")
+            fail_count += 1
+    
+    await update.message.reply_text(
+        f"✅ Broadcast completed!\n\n"
+        f"✅ **Success:** {success_count} users\n"
+        f"❌ **Failed:** {fail_count} users"
+    )
+
+async def buydb_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        f"🗄️ **Buy Database/API**\n\n"
+        f"To purchase our database or API access, please contact:\n"
+        f"@{ADMIN_CONTACT}\n\n"
+        f"We offer various packages tailored to your needs."
+    )
+
+async def buyapi_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        f"🔌 **Buy API Access**\n\n"
+        f"To purchase API access, please contact:\n"
+        f"@{ADMIN_CONTACT}\n\n"
+        f"We offer various packages tailored to your needs."
+    )
+
+async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = []
+    for credits, prices in CREDIT_PRICES.items():
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{credits} Credits - ₹{prices['inr']} | {prices['usdt']} USDT",
+                callback_data=f"buy_{credits}"
+            )
+        ])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("💰 Select a credit package to purchase:", reply_markup=reply_markup)
+
+async def group_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle messages in groups"""
+    message = update.message
+    if f"@{context.bot.username}" in message.text or message.text.strip().isdigit():
+        if not await is_user_member(update, context):
+            await send_not_member_message(update, context)
+            return
+        
+        if message.text.strip().isdigit():
+            await process_number_info(update, context, message.text.strip())
         else:
-            set_protected(user_id, 1)
-            update_credits(user_id, -PROTECT_PRICE)
-            await call.message.edit_text("Your details are protected.", reply_markup=user_menu(is_admin))
-    elif call.data == "mylogs":
-        logs = get_logs(user_id)
-        logs_txt = "\n".join([f"{l[3][:16]}: {l[2]}" for l in logs[-10:]]) if logs else "No logs found."
-        await call.message.edit_text(f"Your last 10 searches:\n{logs_txt}", reply_markup=user_menu(is_admin))
-    elif call.data == "help":
-        await call.message.edit_text(
-            "Send any input (number, UPI, IP, Aadhaar, etc) or use commands:\n"
-            "/callhistory <num> – Paid call history\n"
-            "/stats – User & search stats\n"
-            "/gcast <msg> – Broadcast\n"
-            "/ban <user_id>, /unban <user_id> – Admin only\n"
-            "/buydb /buyapi – Contact admin\n"
-            "/protect – Protect details\n"
-            "/referral – Referral link\n"
-            "/menu – Show menu\n",
-            reply_markup=user_menu(is_admin))
-    elif call.data == "search":
-        await call.message.edit_text("Send input (UPI, Number, IP, Aadhaar, etc):", reply_markup=user_menu(is_admin))
-    elif call.data == "adminpanel" and is_admin:
-        await call.message.edit_text("Admin Panel:", reply_markup=admin_menu(is_owner))
-    elif call.data == "banuser" and is_admin:
-        await call.message.edit_text("Send: /ban <user_id>", reply_markup=admin_menu(is_owner))
-    elif call.data == "unbanuser" and is_admin:
-        await call.message.edit_text("Send: /unban <user_id>", reply_markup=admin_menu(is_owner))
-    elif call.data == "gcast" and is_admin:
-        await call.message.edit_text("Send: /gcast <message>", reply_markup=admin_menu(is_owner))
-    elif call.data == "stats" and is_admin:
-        users, searches = get_stats()
-        await call.message.edit_text(f"👥 Total Users: {users}\n🔎 Total Searches: {searches}", reply_markup=admin_menu(is_owner))
-    elif call.data == "sudolist" and is_admin:
-        lst = get_sudo_list()
-        await call.message.edit_text(f"Sudo list: {lst}", reply_markup=admin_menu(is_owner))
-    elif call.data == "alllogs" and is_admin:
-        logs = get_logs()
-        logs_txt = "\n".join([f"{l[3][:16]}: {l[2]}" for l in logs[-15:]]) if logs else "No logs found."
-        await call.message.edit_text(f"Last 15 searches (all users):\n{logs_txt}", reply_markup=admin_menu(is_owner))
-    elif call.data == "protectednums" and is_owner:
-        await call.message.edit_text(f"Protected Numbers: {PROTECTED_NUMBERS}", reply_markup=admin_menu(is_owner))
-    elif call.data == "blacklistnums" and is_owner:
-        await call.message.edit_text(f"Blacklisted Numbers: {BLACKLIST_NUMBERS}", reply_markup=admin_menu(is_owner))
+            help_text = (
+                "📖 **DataTrace OSINT Bot**\n\n"
+                "I can help you find information about:\n"
+                "• Phone numbers\n"
+                "• UPI IDs\n"
+                "• IP addresses\n"
+                "• Aadhaar numbers\n"
+                "• And more!\n\n"
+                "Send me a number or UPI ID directly, or use /help to see all commands."
+            )
+            await message.reply_text(help_text)
 
-@dp.message_handler(commands=['menu'])
-async def menu_cmd(msg: types.Message):
-    is_admin, _ = get_user_status(msg.from_user.id)
-    await msg.answer("Choose an action:", reply_markup=user_menu(is_admin))
+# --- New Error Handler for v20.x ---
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    logger.error("Exception while handling an update: %s", context.error)
 
-@dp.message_handler(commands=['protect'])
-async def protect_cmd(msg: types.Message):
-    user_id = msg.from_user.id
-    u = get_user(user_id)
-    if u and u[1] < PROTECT_PRICE:
-        await msg.answer("Need 300 credits to protect your details.", reply_markup=user_menu(*get_user_status(user_id)))
-    else:
-        set_protected(user_id, 1)
-        update_credits(user_id, -PROTECT_PRICE)
-        await msg.answer("Your details are protected.", reply_markup=user_menu(*get_user_status(user_id)))
-
-@dp.message_handler(commands=['referral'])
-async def refer_cmd(msg: types.Message):
-    user_id = msg.from_user.id
-    ref_link = f"https://t.me/YourBotName?start={user_id}"
-    count = get_referrals(user_id)
-    await msg.answer(f"Referral link:\n{ref_link}\nReferrals: {count}", reply_markup=user_menu(*get_user_status(user_id)))
-
-@dp.message_handler(commands=['buycredits'])
-async def buycredits_cmd(msg: types.Message):
-    await msg.answer(f"Buy credits:\n{price_table()}\nContact {ADMIN_CONTACT} to buy.", reply_markup=user_menu(*get_user_status(msg.from_user.id)))
-
-@dp.message_handler(commands=['mylogs'])
-async def mylogs_cmd(msg: types.Message):
-    logs = get_logs(msg.from_user.id)
-    logs_txt = "\n".join([f"{l[3][:16]}: {l[2]}" for l in logs[-10:]]) if logs else "No logs found."
-    await msg.answer(f"Your last 10 searches:\n{logs_txt}", reply_markup=user_menu(*get_user_status(msg.from_user.id)))
-
-@dp.message_handler(commands=['help'])
-async def help_cmd(msg: types.Message):
-    await msg.answer(
-        "Send any input (number, UPI, IP, Aadhaar, etc) or use commands:\n"
-        "/callhistory <num> – Paid call history\n"
-        "/stats – User & search stats\n"
-        "/gcast <msg> – Broadcast\n"
-        "/ban <user_id>, /unban <user_id> – Admin only\n"
-        "/buydb /buyapi – Contact admin\n"
-        "/protect – Protect details\n"
-        "/referral – Referral link\n"
-        "/menu – Show menu\n",
-        reply_markup=user_menu(*get_user_status(msg.from_user.id)))
-
-@dp.message_handler(commands=['ban'])
-async def ban_cmd(msg: types.Message):
-    if msg.from_user.id not in SUDO_IDS and msg.from_user.id != OWNER_ID: return
+# --- Main function with new structure ---
+def main():
+    """Start the bot."""
+    application = Application.builder().token(BOT_TOKEN).build()
+    
+    # --- Add handlers to the application ---
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("num", num_command))
+    application.add_handler(CommandHandler("pak", pak_command))
+    application.add_handler(CommandHandler("aadhar", aadhar_command))
+    application.add_handler(CommandHandler("aadhar2fam", aadhar2fam_command))
+    application.add_handler(CommandHandler("upi", upi_command))
+    application.add_handler(CommandHandler("ip", ip_command))
+    application.add_handler(CommandHandler("stats", stats_command))
+    application.add_handler(CommandHandler("call", call_command))
+    application.add_handler(CommandHandler("balance", balance_command))
+    application.add_handler(CommandHandler("referral", referral_command))
+    application.add_handler(CommandHandler("protect", protect_command))
+    application.add_handler(CommandHandler("admin", admin_command))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("buy", buy_command))
+    application.add_handler(CommandHandler("buydb", buydb_command))
+    application.add_handler(CommandHandler("buyapi", buyapi_command))
+    
+    # Admin commands
+    application.add_handler(CommandHandler("addcredits", add_credits_command))
+    application.add_handler(CommandHandler("ban", ban_command))
+    application.add_handler(CommandHandler("unban", unban_command))
+    application.add_handler(CommandHandler("sudolist", sudo_list_command))
+    application.add_handler(CommandHandler("protected", protected_numbers_command))
+    application.add_handler(CommandHandler("statscount", stats_count_command))
+    application.add_handler(CommandHandler("gcast", gcast_command))
+    
+    # Callback query handler
+    application.add_handler(CallbackQueryHandler(button_callback))
+    
+    # Message handler for direct messages
+    application.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
+    
+    # Group message handler
+    application.add_handler(MessageHandler(Filters.group & Filters.text, group_message))
+    
+    # Error handler
+    application.add_error_handler(error_handler)
+    
+    # Set bot commands
+    commands = [
+        BotCommand("start", "Start the bot"),
+        BotCommand("num", "Get number information"),
+        BotCommand("pak", "Get Pakistan number information"),
+        BotCommand("aadhar", "Get Aadhaar details"),
+        BotCommand("aadhar2fam", "Get Aadhaar family information"),
+        BotCommand("upi", "Get UPI information"),
+        BotCommand("ip", "Get IP details"),
+        BotCommand("stats", "Get Telegram user stats"),
+        BotCommand("call", "Get call history (Paid)"),
+        BotCommand("balance", "Check your credit balance"),
+        BotCommand("referral", "Get your referral link"),
+        BotCommand("protect", "Protect your data"),
+        BotCommand("admin", "Contact admin"),
+        BotCommand("help", "Show help"),
+        BotCommand("buy", "Buy credits"),
+        BotCommand("buydb", "Buy database"),
+        BotCommand("buyapi", "Buy API access")
+    ]
+    
     try:
-        target = int(msg.text.split()[1])
-        set_ban(target, 1)
-        await msg.answer(f"User {target} banned.", reply_markup=admin_menu(msg.from_user.id==OWNER_ID))
-    except:
-        await msg.answer("Usage: /ban <user_id>", reply_markup=admin_menu(msg.from_user.id==OWNER_ID))
+        await application.bot.set_my_commands(commands)
+    except Exception as e:
+        logger.error(f"Failed to set bot commands: {e}")
+    
+    # --- Start the Bot ---
+    application.run_polling()
 
-@dp.message_handler(commands=['unban'])
-async def unban_cmd(msg: types.Message):
-    if msg.from_user.id not in SUDO_IDS and msg.from_user.id != OWNER_ID: return
-    try:
-        target = int(msg.text.split()[1])
-        set_ban(target, 0)
-        await msg.answer(f"User {target} unbanned.", reply_markup=admin_menu(msg.from_user.id==OWNER_ID))
-    except:
-        await msg.answer("Usage: /unban <user_id>", reply_markup=admin_menu(msg.from_user.id==OWNER_ID))
-
-@dp.message_handler(commands=['stats'])
-async def stats_cmd(msg: types.Message):
-    if msg.from_user.id not in SUDO_IDS and msg.from_user.id != OWNER_ID: return
-    users, searches = get_stats()
-    await msg.answer(f"👥 Total Users: {users}\n🔎 Total Searches: {searches}", reply_markup=admin_menu(msg.from_user.id==OWNER_ID))
-
-@dp.message_handler(commands=['gcast'])
-async def gcast_cmd(msg: types.Message):
-    if msg.from_user.id not in SUDO_IDS and msg.from_user.id != OWNER_ID: return
-    to_send = msg.text[len("/gcast "):]
-    for uid in get_all_users():
-        try:
-            await bot.send_message(uid, to_send)
-        except: pass
-    await msg.answer("Broadcast sent.", reply_markup=admin_menu(msg.from_user.id==OWNER_ID))
-
-@dp.message_handler(commands=['buydb', 'buyapi'])
-async def buy_cmd(msg: types.Message):
-    await msg.answer(f"Contact admin: {ADMIN_CONTACT}")
-
-@dp.message_handler(commands=['callhistory'])
-async def callhistory_cmd(msg: types.Message):
-    user_id = msg.from_user.id
-    u = get_user(user_id)
-    try:
-        num = msg.text.split()[1]
-    except:
-        await msg.answer("Usage: /callhistory <number>")
-        return
-    if not u or u[1] < CALL_HISTORY_PRICE:
-        await msg.answer(f"Call history is paid only: ₹{CALL_HISTORY_PRICE}/search. Not enough credits.\nContact Admin.", reply_markup=user_menu(*get_user_status(user_id)))
-        return
-    api_url = f"https://my-vercel-flask-qmfgrzwdl-okvaipro-svgs-projects.vercel.app/api/call_statement?number={num}&days=7"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(api_url) as resp:
-            try:
-                data = await resp.json()
-            except:
-                data = await resp.text()
-    await msg.answer(format_response("CALL HISTORY", str(data)), reply_markup=user_menu(*get_user_status(user_id)))
-    log_query(user_id, msg.text, str(data))
-    update_credits(user_id, -CALL_HISTORY_PRICE)
-    await bot.send_message(LOG_CHANNEL, f"Call history search: {user_id}, {num}")
-
-async def fetch_api(url):
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as resp:
-            try:
-                return await resp.json()
-            except:
-                return await resp.text()
-
-def has_credits(user_id):
-    u = get_user(user_id)
-    return u and u[1] > 0 and u[4] == 0
-
-def deduct_credits(user_id, n=1):
-    update_credits(user_id, -n)
-
-def is_protected(number, user_id):
-    if number in PROTECTED_NUMBERS and user_id != OWNER_ID:
-        return True
-    return False
-
-@dp.message_handler()
-async def main_handler(msg: types.Message):
-    user_id = msg.from_user.id
-    txt = msg.text.strip()
-    u = get_user(user_id)
-    # Support group logic: free inside support group
-    in_group = False
-    if hasattr(msg.chat, "id") and msg.chat.id == SUPPORT_GROUP_ID:
-        in_group = True
-    if not in_group:
-        if not u or u[4] == 1:
-            await msg.answer("You are banned from using the bot.")
-            return
-        if not has_credits(user_id):
-            await msg.answer("Not enough credits! Refer friends or buy credits.", reply_markup=user_menu(*get_user_status(user_id)))
-            return
-    if any(num in txt for num in BLACKLIST_NUMBERS):
-        await msg.answer("Blacklisted number. No result.")
-        return
-    if is_protected(txt, user_id):
-        await msg.answer("Protected number. Access denied.")
-        return
-    if not await check_channels(user_id):
-        await msg.answer("Join required channels to use the bot:\n" +
-                         "\n".join([f"@{x}" for x in MANDATORY_CHANNELS]))
-        return
-
-    # Log every search
-    await bot.send_message(LOG_CHANNEL, f"Search: {user_id}, {txt}")
-
-    # UPI
-    if "@" in txt and not txt.startswith("/"):
-        api_url = f"https://upi-info.vercel.app/api/upi?upi_id={txt}&key=456"
-        data = await fetch_api(api_url)
-        try:
-            name = data['vpa_details']['name']
-            vpa = data['vpa_details']['vpa']
-            bank = data['bank_details_raw']['BANK']
-            branch = data['bank_details_raw']['BRANCH']
-            address = data['bank_details_raw']['ADDRESS']
-            ifsc = data['bank_details_raw']['IFSC']
-            micr = data['bank_details_raw']['MICR']
-            body = (f"👤 Name: <b>{name}</b>\n💳 VPA: <b>{vpa}</b>\n🏦 Bank: <b>{bank}</b> ({branch})\n📍 Address: <b>{address}</b>\nIFSC: <b>{ifsc}</b> | MICR: <b>{micr}</b>")
-            await msg.answer(format_response("🏦 UPI SEARCH RESULT", body), reply_markup=user_menu(*get_user_status(user_id)))
-            log_query(user_id, txt, body)
-            if not in_group: deduct_credits(user_id)
-        except:
-            await msg.answer("No info found.", reply_markup=user_menu(*get_user_status(user_id)))
-        return
-
-    # Number India
-    if re.match(r"^(\+91)?\d{10}$", txt):
-        api_url = f"http://osintx.info/API/krobetahack.php?key=SHAD0WINT3L&type=mobile&term={txt[-10:]}"
-        data = await fetch_api(api_url)
-        try:
-            res = data['data'][0]
-            body = (f"📞 Mobile: <b>{res['mobile']}</b> | Alt: <b>{res['alt']}</b>\n👤 Name: <b>{res['name']}</b>\n🧾 Full Name: <b>{res['fname']}</b>\n🏠 Address: <b>{res['address'].replace('!', ', ')}</b>\n🌐 Circle: <b>{res['circle']}</b>\n🆔 ID: <b>{res['id']}</b>")
-            await msg.answer(format_response("📱 NUMBER SEARCH RESULT", body), reply_markup=user_menu(*get_user_status(user_id)))
-            log_query(user_id, txt, body)
-            if not in_group: deduct_credits(user_id)
-        except:
-            await msg.answer("No info found.", reply_markup=user_menu(*get_user_status(user_id)))
-        return
-
-    # Pakistan CNIC
-    if txt.startswith("+92") or (txt.isdigit() and len(txt) == 12 and txt.startswith("92")):
-        api_url = f"https://pak-num-api.vercel.app/search?number={txt}"
-        data = await fetch_api(api_url)
-        try:
-            items = data['results']
-            msg_text = ""
-            for idx, item in enumerate(items, 1):
-                msg_text += f"{idx}️⃣\n👤 Name: <b>{item['Name']}</b>\n🆔 CNIC: <b>{item['CNIC']}</b>\n📞 Mobile: <b>{item['Mobile']}</b>\n🏠 Address: <b>{item['Address'] if item['Address'] else '(Not Available)'}</b>\n"
-            await msg.answer(format_response("🇵🇰 PAKISTAN SEARCH RESULT", msg_text), reply_markup=user_menu(*get_user_status(user_id)))
-            log_query(user_id, txt, msg_text)
-            if not in_group: deduct_credits(user_id)
-        except:
-            await msg.answer("No info found.", reply_markup=user_menu(*get_user_status(user_id)))
-        return
-
-    # Aadhaar to Info
-    if txt.isdigit() and len(txt) == 12:
-        api_url = f"http://osintx.info/API/krobetahack.php?key=SHAD0WINT3L&type=id_number&term={txt}"
-        data = await fetch_api(api_url)
-        try:
-            res = data['data'][0]
-            body = (f"📞 Mobile: <b>{res['mobile']}</b> | Alt: <b>{res['alt']}</b>\n👤 Name: <b>{res['name']}</b>\n🧾 Full Name: <b>{res['fname']}</b>\n🏠 Address: <b>{res['address'].replace('!', ', ')}</b>\n🌐 Circle: <b>{res['circle']}</b>\n🆔 ID: <b>{res['id']}</b>")
-            await msg.answer(format_response("📱 NUMBER SEARCH RESULT", body), reply_markup=user_menu(*get_user_status(user_id)))
-            log_query(user_id, txt, body)
-            if not in_group: deduct_credits(user_id)
-        except:
-            await msg.answer("No info found.", reply_markup=user_menu(*get_user_status(user_id)))
-        return
-
-    # Aadhaar to Family
-    if txt.isdigit() and len(txt) == 12:
-        api_url = f"https://family-members-n5um.vercel.app/fetch?aadhaar={txt}&key=paidchx"
-        data = await fetch_api(api_url)
-        try:
-            lst = data['memberDetailsList']
-            members_txt = ""
-            for idx, m in enumerate(lst, 1):
-                members_txt += f"{idx}️⃣ <b>{m['memberName']}</b> — {m['releationship_name']}\n"
-            body = (f"RC ID: <b>{data['rcId']}</b>\nScheme: <b>{data['schemeName']}</b>\nDistrict: <b>{data['homeDistName']}</b>\nState: <b>{data['homeStateName']}</b>\nFPS ID: <b>{data['fpsId']}</b>\n\n👨‍👩‍👧 FAMILY MEMBERS:\n{members_txt}")
-            await msg.answer(format_response("🆔 AADHAR FAMILY SEARCH RESULT", body), reply_markup=user_menu(*get_user_status(user_id)))
-            log_query(user_id, txt, body)
-            if not in_group: deduct_credits(user_id)
-        except:
-            await msg.answer("No info found.", reply_markup=user_menu(*get_user_status(user_id)))
-        return
-
-    # IP Details
-    if re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", txt):
-        api_url = f"https://karmali.serv00.net/ip_api.php?ip={txt}"
-        data = await fetch_api(api_url)
-        try:
-            body = (f"🌍 Country: <b>{data['country']}</b> ({data['countryCode']})\n📍 Region: <b>{data['regionName']}</b>, City: <b>{data['city']}</b>\n📮 Zip: <b>{data['zip']}</b>\n🕒 Timezone: <b>{data['timezone']}</b>\n📡 ISP: <b>{data['isp']}</b>\n🔥 Org: <b>{data['org']}</b>\nAS: <b>{data['as']}</b>\nIP: <b>{data['query']}</b>")
-            await msg.answer(format_response("🛰 IP SEARCH RESULT", body), reply_markup=user_menu(*get_user_status(user_id)))
-            log_query(user_id, txt, body)
-            if not in_group: deduct_credits(user_id)
-        except:
-            await msg.answer("No info found.", reply_markup=user_menu(*get_user_status(user_id)))
-        return
-
-    # TG User Stats
-    if txt.startswith("/tgstats "):
-        tid = txt.split()[1]
-        api_url = f"https://tg-info-neon.vercel.app/user-details?user={tid}"
-        data = await fetch_api(api_url)
-        try:
-            d = data['data']
-            body = (f"Name: <b>{d['first_name']}</b>\nUser ID: <b>{d['id']}</b>\nActive: {'✅' if d['is_active'] else '❌'}\nBot: {'✅' if d['is_bot'] else '❌'}\n\n📊 Stats:\nGroups Joined: <b>{d['total_groups']}</b>\nAdmin in: <b>{d['adm_in_groups']}</b>\nTotal Messages: <b>{d['total_msg_count']}</b>\nMessages in Groups: <b>{d['msg_in_groups_count']}</b>\nName Changes: <b>{d['names_count']}</b>\nUsername Changes: <b>{d['usernames_count']}</b>\n\n🕐 First Msg: <b>{d['first_msg_date']}</b>\n🕐 Last Msg: <b>{d['last_msg_date']}</b>")
-            await msg.answer(format_response("👤 TELEGRAM USER STATS", body), reply_markup=user_menu(*get_user_status(user_id)))
-            log_query(user_id, txt, body)
-            if not in_group: deduct_credits(user_id)
-        except:
-            await msg.answer("No info found.", reply_markup=user_menu(*get_user_status(user_id)))
-        return
-
-    await msg.answer("Unknown command or input. Use the menu.", reply_markup=user_menu(*get_user_status(user_id)))
-
-if __name__ == "__main__":
-    executor.start_polling(dp, skip_updates=True)
+if __name__ == '__main__':
+    main()
