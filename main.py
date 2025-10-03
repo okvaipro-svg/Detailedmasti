@@ -11,11 +11,17 @@ from telegram.ext import (
     Updater,
     CommandHandler,
     MessageHandler,
-    Filters,
     CallbackQueryHandler,
     CallbackContext,
+    Application,
 )
 from telegram.error import BadRequest
+
+# Try to import Filters from the correct location based on the version
+try:
+    from telegram.ext import Filters
+except ImportError:
+    from telegram import Filters
 
 # Enable logging
 logging.basicConfig(
@@ -500,7 +506,7 @@ def add_branding_footer(response):
     return response + footer
 
 # Start command handler
-def start(update: Update, context: CallbackContext) -> None:
+async def start(update: Update, context: CallbackContext) -> None:
     user = update.effective_user
     user_id = user.id
     
@@ -511,13 +517,13 @@ def start(update: Update, context: CallbackContext) -> None:
 👤 User: {user.first_name} (@{user.username}) ({user_id})
 🕐 Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
         """
-        context.bot.send_message(LOG_CHANNEL_START, log_message)
+        await context.bot.send_message(LOG_CHANNEL_START, log_message)
     except Exception as e:
         logger.error(f"Failed to log start to channel: {e}")
     
     # Check if user is banned
     if is_user_banned(user_id):
-        update.message.reply_text("❌ You are banned from using this bot.")
+        await update.message.reply_text("❌ You are banned from using this bot.")
         return
     
     # Check if user exists in database
@@ -548,7 +554,7 @@ def start(update: Update, context: CallbackContext) -> None:
         buttons.append([InlineKeyboardButton("✅ I've Joined All Channels", callback_data="check_joined")])
         
         reply_markup = InlineKeyboardMarkup(buttons)
-        update.message.reply_text(
+        await update.message.reply_text(
             "🔒 **You need to join our mandatory channels to use this bot:**\n\n"
             "Please join all channels below and then click the verification button:",
             reply_markup=reply_markup
@@ -590,18 +596,18 @@ Share this link with friends to earn credits!
 ━━━━━━━━━━━━━━━━━━━━
     """
     
-    update.message.reply_text(welcome_text, reply_markup=reply_markup)
+    await update.message.reply_text(welcome_text, reply_markup=reply_markup)
 
 # Handle callback queries
-def button_callback(update: Update, context: CallbackContext) -> None:
+async def button_callback(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
-    query.answer()
+    await query.answer()
     
     user_id = update.effective_user.id
     
     # Check if user is banned
     if is_user_banned(user_id):
-        query.edit_message_text("❌ You are banned from using this bot.")
+        await query.edit_message_text("❌ You are banned from using this bot.")
         return
     
     # Check if user has joined mandatory channels
@@ -613,7 +619,7 @@ def button_callback(update: Update, context: CallbackContext) -> None:
         buttons.append([InlineKeyboardButton("✅ I've Joined All Channels", callback_data="check_joined")])
         
         reply_markup = InlineKeyboardMarkup(buttons)
-        query.edit_message_text(
+        await query.edit_message_text(
             "🔒 **You need to join our mandatory channels to use this bot:**\n\n"
             "Please join all channels below and then click the verification button:",
             reply_markup=reply_markup
@@ -667,9 +673,9 @@ Share this link with friends to earn credits!
 ━━━━━━━━━━━━━━━━━━━━
             """
             
-            query.edit_message_text(welcome_text, reply_markup=reply_markup)
+            await query.edit_message_text(welcome_text, reply_markup=reply_markup)
         else:
-            query.edit_message_text(
+            await query.edit_message_text(
                 "❌ **Verification Failed!**\n\n"
                 "You haven't joined all mandatory channels yet. Please join all channels and try again.",
                 reply_markup=InlineKeyboardMarkup([
@@ -691,7 +697,7 @@ Share this link with friends to earn credits!
         ]
         
         reply_markup = InlineKeyboardMarkup(buttons)
-        query.edit_message_text(
+        await query.edit_message_text(
             "🔍 **Select a lookup service:**",
             reply_markup=reply_markup
         )
@@ -727,7 +733,7 @@ Share this link with friends to earn credits!
 ━━━━━━━━━━━━━━━━━━━━
         """
         
-        query.edit_message_text(text, reply_markup=reply_markup)
+        await query.edit_message_text(text, reply_markup=reply_markup)
     
     elif query.data == "referral_program":
         # Generate referral link
@@ -773,7 +779,7 @@ Share this link with friends to earn credits!
 ━━━━━━━━━━━━━━━━━━━━
         """
         
-        query.edit_message_text(text, reply_markup=reply_markup)
+        await query.edit_message_text(text, reply_markup=reply_markup)
     
     elif query.data == "copy_referral":
         referral_link = f"https://t.me/{context.bot.username}?start={user_id}"
@@ -784,7 +790,7 @@ Share this link with friends to earn credits!
         
         reply_markup = InlineKeyboardMarkup(buttons)
         
-        query.edit_message_text(
+        await query.edit_message_text(
             f"📋 **Referral Link Copied!**\n\n`{referral_link}`\n\nShare this link with your friends to earn credits!",
             reply_markup=reply_markup
         )
@@ -827,7 +833,7 @@ Select a package below:
 ━━━━━━━━━━━━━━━━━━━━
         """
         
-        query.edit_message_text(text, reply_markup=reply_markup)
+        await query.edit_message_text(text, reply_markup=reply_markup)
     
     elif query.data.startswith("buy_"):
         credits_amount = query.data.split("_")[1]
@@ -841,7 +847,7 @@ Select a package below:
         
         reply_markup = InlineKeyboardMarkup(buttons)
         
-        query.edit_message_text(
+        await query.edit_message_text(
             f"💳 **Payment for {credits_amount} Credits**\n\n"
             f"Select your payment method:",
             reply_markup=reply_markup
@@ -864,7 +870,7 @@ Select a package below:
             inr_price, usdt_price = pricing[credits_amount]
             
             if payment_method == "upi":
-                query.edit_message_text(
+                await query.edit_message_text(
                     f"💳 **UPI Payment Details**\n\n"
                     f"**Amount:** {inr_price}\n"
                     f"**Credits:** {credits_amount}\n\n"
@@ -879,7 +885,7 @@ Select a package below:
                     ])
                 )
             elif payment_method == "usdt":
-                query.edit_message_text(
+                await query.edit_message_text(
                     f"💳 **USDT Payment Details**\n\n"
                     f"**Amount:** {usdt_price}\n"
                     f"**Credits:** {credits_amount}\n\n"
@@ -921,7 +927,7 @@ To protect your number from being searched in our bot, you need to pay a protect
 ━━━━━━━━━━━━━━━━━━━━
         """
         
-        query.edit_message_text(text, reply_markup=reply_markup)
+        await query.edit_message_text(text, reply_markup=reply_markup)
     
     elif query.data == "help_menu":
         buttons = [
@@ -949,7 +955,7 @@ Select a topic to learn more:
 ━━━━━━━━━━━━━━━━━━━━
         """
         
-        query.edit_message_text(text, reply_markup=reply_markup)
+        await query.edit_message_text(text, reply_markup=reply_markup)
     
     elif query.data.startswith("help_"):
         help_topic = query.data.split("_")[1]
@@ -1058,7 +1064,7 @@ Select a topic to learn more:
         
         reply_markup = InlineKeyboardMarkup(buttons)
         
-        query.edit_message_text(text, reply_markup=reply_markup)
+        await query.edit_message_text(text, reply_markup=reply_markup)
     
     elif query.data == "back_to_main":
         # Generate referral link
@@ -1096,7 +1102,7 @@ Share this link with friends to earn credits!
 ━━━━━━━━━━━━━━━━━━━━
         """
         
-        query.edit_message_text(welcome_text, reply_markup=reply_markup)
+        await query.edit_message_text(welcome_text, reply_markup=reply_markup)
     
     elif query.data in ["num_info", "pak_num", "aadhar_details", "aadhar_family", "upi_info", "ip_details", "tg_user_stats", "call_history"]:
         # Handle lookup selection
@@ -1123,20 +1129,20 @@ Share this link with friends to earn credits!
         
         reply_markup = InlineKeyboardMarkup(buttons)
         
-        query.edit_message_text(
+        await query.edit_message_text(
             prompts.get(lookup_type, "Please send the required information:"),
             reply_markup=reply_markup
         )
 
 # Handle text messages
-def handle_message(update: Update, context: CallbackContext) -> None:
+async def handle_message(update: Update, context: CallbackContext) -> None:
     user = update.effective_user
     user_id = user.id
     message_text = update.message.text
     
     # Check if user is banned
     if is_user_banned(user_id):
-        update.message.reply_text("❌ You are banned from using this bot.")
+        await update.message.reply_text("❌ You are banned from using this bot.")
         return
     
     # Check if user has joined mandatory channels
@@ -1148,7 +1154,7 @@ def handle_message(update: Update, context: CallbackContext) -> None:
         buttons.append([InlineKeyboardButton("✅ I've Joined All Channels", callback_data="check_joined")])
         
         reply_markup = InlineKeyboardMarkup(buttons)
-        update.message.reply_text(
+        await update.message.reply_text(
             "🔒 **You need to join our mandatory channels to use this bot:**\n\n"
             "Please join all channels below and then click the verification button:",
             reply_markup=reply_markup
@@ -1162,37 +1168,37 @@ def handle_message(update: Update, context: CallbackContext) -> None:
         
         # Process the lookup based on type
         if lookup_type == "num_info":
-            process_number_lookup(update, context, message_text)
+            await process_number_lookup(update, context, message_text)
         elif lookup_type == "pak_num":
-            process_pak_number_lookup(update, context, message_text)
+            await process_pak_number_lookup(update, context, message_text)
         elif lookup_type == "aadhar_details":
-            process_aadhar_lookup(update, context, message_text)
+            await process_aadhar_lookup(update, context, message_text)
         elif lookup_type == "aadhar_family":
-            process_aadhar_family_lookup(update, context, message_text)
+            await process_aadhar_family_lookup(update, context, message_text)
         elif lookup_type == "upi_info":
-            process_upi_lookup(update, context, message_text)
+            await process_upi_lookup(update, context, message_text)
         elif lookup_type == "ip_details":
-            process_ip_lookup(update, context, message_text)
+            await process_ip_lookup(update, context, message_text)
         elif lookup_type == "tg_user_stats":
-            process_tg_user_lookup(update, context, message_text)
+            await process_tg_user_lookup(update, context, message_text)
         elif lookup_type == "call_history":
-            process_call_history_lookup(update, context, message_text)
+            await process_call_history_lookup(update, context, message_text)
         return
     
     # Check if the message is a direct number lookup
     if re.match(r'^(\+?\d{10,15}|\d{10})$', message_text):
         # Determine if it's a Pakistan number or regular number
         if message_text.startswith("+92") or (len(message_text) >= 10 and message_text.startswith("92")):
-            process_pak_number_lookup(update, context, message_text)
+            await process_pak_number_lookup(update, context, message_text)
         else:
-            process_number_lookup(update, context, message_text)
+            await process_number_lookup(update, context, message_text)
         return
     
     # Handle group messages
     if update.message.chat.type != "private":
         # Only reply if the bot is mentioned or if it's a command
         if f"@{context.bot.username}" in message_text or message_text.startswith("/"):
-            update.message.reply_text(
+            await update.message.reply_text(
                 "🔍 **DataTrace OSINT Bot**\n\n"
                 "Please use the bot in private messages for lookups.\n\n"
                 "📞 Contact Admin: @DataTraceSupport"
@@ -1200,7 +1206,7 @@ def handle_message(update: Update, context: CallbackContext) -> None:
         return
     
     # Default response for unrecognized messages
-    update.message.reply_text(
+    await update.message.reply_text(
         "❓ I don't understand that command.\n\n"
         "Please use the buttons below to navigate:",
         reply_markup=InlineKeyboardMarkup([
@@ -1210,7 +1216,7 @@ def handle_message(update: Update, context: CallbackContext) -> None:
     )
 
 # Process number lookup
-def process_number_lookup(update: Update, context: CallbackContext, number: str) -> None:
+async def process_number_lookup(update: Update, context: CallbackContext, number: str) -> None:
     user_id = update.effective_user.id
     
     # Normalize number
@@ -1223,12 +1229,12 @@ def process_number_lookup(update: Update, context: CallbackContext, number: str)
     
     # Check if number is blacklisted
     if is_blacklisted(normalized):
-        update.message.reply_text("❌ This number is blacklisted and cannot be searched.")
+        await update.message.reply_text("❌ This number is blacklisted and cannot be searched.")
         return
     
     # Check if number is protected
     if is_protected(normalized) and user_id != OWNER_ID:
-        update.message.reply_text("❌ This number is protected and cannot be searched.")
+        await update.message.reply_text("❌ This number is protected and cannot be searched.")
         return
     
     # Check if user has enough credits
@@ -1242,7 +1248,7 @@ def process_number_lookup(update: Update, context: CallbackContext, number: str)
         
         reply_markup = InlineKeyboardMarkup(buttons)
         
-        update.message.reply_text(
+        await update.message.reply_text(
             "❌ **Insufficient Credits**\n\n"
             "You need 1 credit to perform this search.\n\n"
             "Get more credits:",
@@ -1254,7 +1260,7 @@ def process_number_lookup(update: Update, context: CallbackContext, number: str)
     update_user_credits(user_id, -1)
     
     # Show processing message
-    processing_message = update.message.reply_text("🔍 Searching... Please wait.")
+    processing_message = await update.message.reply_text("🔍 Searching... Please wait.")
     
     try:
         # Make API request
@@ -1270,17 +1276,17 @@ def process_number_lookup(update: Update, context: CallbackContext, number: str)
         log_search(user_id, "Number Info", normalized, len(data.get("data", [])), context)
         
         # Update processing message
-        processing_message.edit_text(formatted_response)
+        await processing_message.edit_text(formatted_response)
         
     except Exception as e:
         logger.error(f"Error in number lookup: {e}")
-        processing_message.edit_text(
+        await processing_message.edit_text(
             "❌ **Error:** Failed to fetch information. Please try again later.\n\n"
             "📞 Contact Admin: @DataTraceSupport"
         )
 
 # Process Pakistan number lookup
-def process_pak_number_lookup(update: Update, context: CallbackContext, number: str) -> None:
+async def process_pak_number_lookup(update: Update, context: CallbackContext, number: str) -> None:
     user_id = update.effective_user.id
     
     # Normalize number
@@ -1299,7 +1305,7 @@ def process_pak_number_lookup(update: Update, context: CallbackContext, number: 
         
         reply_markup = InlineKeyboardMarkup(buttons)
         
-        update.message.reply_text(
+        await update.message.reply_text(
             "❌ **Insufficient Credits**\n\n"
             "You need 1 credit to perform this search.\n\n"
             "Get more credits:",
@@ -1311,7 +1317,7 @@ def process_pak_number_lookup(update: Update, context: CallbackContext, number: 
     update_user_credits(user_id, -1)
     
     # Show processing message
-    processing_message = update.message.reply_text("🔍 Searching... Please wait.")
+    processing_message = await update.message.reply_text("🔍 Searching... Please wait.")
     
     try:
         # Make API request
@@ -1327,17 +1333,17 @@ def process_pak_number_lookup(update: Update, context: CallbackContext, number: 
         log_search(user_id, "Pakistan Number", normalized, len(data.get("results", [])), context)
         
         # Update processing message
-        processing_message.edit_text(formatted_response)
+        await processing_message.edit_text(formatted_response)
         
     except Exception as e:
         logger.error(f"Error in Pakistan number lookup: {e}")
-        processing_message.edit_text(
+        await processing_message.edit_text(
             "❌ **Error:** Failed to fetch information. Please try again later.\n\n"
             "📞 Contact Admin: @DataTraceSupport"
         )
 
 # Process Aadhar lookup
-def process_aadhar_lookup(update: Update, context: CallbackContext, aadhar: str) -> None:
+async def process_aadhar_lookup(update: Update, context: CallbackContext, aadhar: str) -> None:
     user_id = update.effective_user.id
     
     # Normalize Aadhar number
@@ -1354,7 +1360,7 @@ def process_aadhar_lookup(update: Update, context: CallbackContext, aadhar: str)
         
         reply_markup = InlineKeyboardMarkup(buttons)
         
-        update.message.reply_text(
+        await update.message.reply_text(
             "❌ **Insufficient Credits**\n\n"
             "You need 1 credit to perform this search.\n\n"
             "Get more credits:",
@@ -1366,7 +1372,7 @@ def process_aadhar_lookup(update: Update, context: CallbackContext, aadhar: str)
     update_user_credits(user_id, -1)
     
     # Show processing message
-    processing_message = update.message.reply_text("🔍 Searching... Please wait.")
+    processing_message = await update.message.reply_text("🔍 Searching... Please wait.")
     
     try:
         # Make API request
@@ -1382,17 +1388,17 @@ def process_aadhar_lookup(update: Update, context: CallbackContext, aadhar: str)
         log_search(user_id, "Aadhar Details", normalized, len(data) if isinstance(data, list) else 1, context)
         
         # Update processing message
-        processing_message.edit_text(formatted_response)
+        await processing_message.edit_text(formatted_response)
         
     except Exception as e:
         logger.error(f"Error in Aadhar lookup: {e}")
-        processing_message.edit_text(
+        await processing_message.edit_text(
             "❌ **Error:** Failed to fetch information. Please try again later.\n\n"
             "📞 Contact Admin: @DataTraceSupport"
         )
 
 # Process Aadhar family lookup
-def process_aadhar_family_lookup(update: Update, context: CallbackContext, aadhar: str) -> None:
+async def process_aadhar_family_lookup(update: Update, context: CallbackContext, aadhar: str) -> None:
     user_id = update.effective_user.id
     
     # Normalize Aadhar number
@@ -1409,7 +1415,7 @@ def process_aadhar_family_lookup(update: Update, context: CallbackContext, aadha
         
         reply_markup = InlineKeyboardMarkup(buttons)
         
-        update.message.reply_text(
+        await update.message.reply_text(
             "❌ **Insufficient Credits**\n\n"
             "You need 1 credit to perform this search.\n\n"
             "Get more credits:",
@@ -1421,7 +1427,7 @@ def process_aadhar_family_lookup(update: Update, context: CallbackContext, aadha
     update_user_credits(user_id, -1)
     
     # Show processing message
-    processing_message = update.message.reply_text("🔍 Searching... Please wait.")
+    processing_message = await update.message.reply_text("🔍 Searching... Please wait.")
     
     try:
         # Make API request
@@ -1437,17 +1443,17 @@ def process_aadhar_family_lookup(update: Update, context: CallbackContext, aadha
         log_search(user_id, "Aadhar Family", normalized, len(data.get("memberDetailsList", [])), context)
         
         # Update processing message
-        processing_message.edit_text(formatted_response)
+        await processing_message.edit_text(formatted_response)
         
     except Exception as e:
         logger.error(f"Error in Aadhar family lookup: {e}")
-        processing_message.edit_text(
+        await processing_message.edit_text(
             "❌ **Error:** Failed to fetch information. Please try again later.\n\n"
             "📞 Contact Admin: @DataTraceSupport"
         )
 
 # Process UPI lookup
-def process_upi_lookup(update: Update, context: CallbackContext, upi_id: str) -> None:
+async def process_upi_lookup(update: Update, context: CallbackContext, upi_id: str) -> None:
     user_id = update.effective_user.id
     
     # Check if user has enough credits
@@ -1461,7 +1467,7 @@ def process_upi_lookup(update: Update, context: CallbackContext, upi_id: str) ->
         
         reply_markup = InlineKeyboardMarkup(buttons)
         
-        update.message.reply_text(
+        await update.message.reply_text(
             "❌ **Insufficient Credits**\n\n"
             "You need 1 credit to perform this search.\n\n"
             "Get more credits:",
@@ -1473,7 +1479,7 @@ def process_upi_lookup(update: Update, context: CallbackContext, upi_id: str) ->
     update_user_credits(user_id, -1)
     
     # Show processing message
-    processing_message = update.message.reply_text("🔍 Searching... Please wait.")
+    processing_message = await update.message.reply_text("🔍 Searching... Please wait.")
     
     try:
         # Make API request
@@ -1489,17 +1495,17 @@ def process_upi_lookup(update: Update, context: CallbackContext, upi_id: str) ->
         log_search(user_id, "UPI Info", upi_id, 1, context)
         
         # Update processing message
-        processing_message.edit_text(formatted_response)
+        await processing_message.edit_text(formatted_response)
         
     except Exception as e:
         logger.error(f"Error in UPI lookup: {e}")
-        processing_message.edit_text(
+        await processing_message.edit_text(
             "❌ **Error:** Failed to fetch information. Please try again later.\n\n"
             "📞 Contact Admin: @DataTraceSupport"
         )
 
 # Process IP lookup
-def process_ip_lookup(update: Update, context: CallbackContext, ip: str) -> None:
+async def process_ip_lookup(update: Update, context: CallbackContext, ip: str) -> None:
     user_id = update.effective_user.id
     
     # Check if user has enough credits
@@ -1513,7 +1519,7 @@ def process_ip_lookup(update: Update, context: CallbackContext, ip: str) -> None
         
         reply_markup = InlineKeyboardMarkup(buttons)
         
-        update.message.reply_text(
+        await update.message.reply_text(
             "❌ **Insufficient Credits**\n\n"
             "You need 1 credit to perform this search.\n\n"
             "Get more credits:",
@@ -1525,7 +1531,7 @@ def process_ip_lookup(update: Update, context: CallbackContext, ip: str) -> None
     update_user_credits(user_id, -1)
     
     # Show processing message
-    processing_message = update.message.reply_text("🔍 Searching... Please wait.")
+    processing_message = await update.message.reply_text("🔍 Searching... Please wait.")
     
     try:
         # Make API request
@@ -1541,23 +1547,23 @@ def process_ip_lookup(update: Update, context: CallbackContext, ip: str) -> None
         log_search(user_id, "IP Details", ip, 1, context)
         
         # Update processing message
-        processing_message.edit_text(formatted_response)
+        await processing_message.edit_text(formatted_response)
         
     except Exception as e:
         logger.error(f"Error in IP lookup: {e}")
-        processing_message.edit_text(
+        await processing_message.edit_text(
             "❌ **Error:** Failed to fetch information. Please try again later.\n\n"
             "📞 Contact Admin: @DataTraceSupport"
         )
 
 # Process Telegram user lookup
-def process_tg_user_lookup(update: Update, context: CallbackContext, user_id_str: str) -> None:
+async def process_tg_user_lookup(update: Update, context: CallbackContext, user_id_str: str) -> None:
     user_id = update.effective_user.id
     
     try:
         target_user_id = int(user_id_str)
     except ValueError:
-        update.message.reply_text("❌ Invalid User ID. Please provide a valid Telegram User ID.")
+        await update.message.reply_text("❌ Invalid User ID. Please provide a valid Telegram User ID.")
         return
     
     # Check if user has enough credits
@@ -1571,7 +1577,7 @@ def process_tg_user_lookup(update: Update, context: CallbackContext, user_id_str
         
         reply_markup = InlineKeyboardMarkup(buttons)
         
-        update.message.reply_text(
+        await update.message.reply_text(
             "❌ **Insufficient Credits**\n\n"
             "You need 1 credit to perform this search.\n\n"
             "Get more credits:",
@@ -1583,7 +1589,7 @@ def process_tg_user_lookup(update: Update, context: CallbackContext, user_id_str
     update_user_credits(user_id, -1)
     
     # Show processing message
-    processing_message = update.message.reply_text("🔍 Searching... Please wait.")
+    processing_message = await update.message.reply_text("🔍 Searching... Please wait.")
     
     try:
         # Make API request
@@ -1599,17 +1605,17 @@ def process_tg_user_lookup(update: Update, context: CallbackContext, user_id_str
         log_search(user_id, "Telegram User Stats", str(target_user_id), 1, context)
         
         # Update processing message
-        processing_message.edit_text(formatted_response)
+        await processing_message.edit_text(formatted_response)
         
     except Exception as e:
         logger.error(f"Error in Telegram user lookup: {e}")
-        processing_message.edit_text(
+        await processing_message.edit_text(
             "❌ **Error:** Failed to fetch information. Please try again later.\n\n"
             "📞 Contact Admin: @DataTraceSupport"
         )
 
 # Process call history lookup
-def process_call_history_lookup(update: Update, context: CallbackContext, number: str) -> None:
+async def process_call_history_lookup(update: Update, context: CallbackContext, number: str) -> None:
     user_id = update.effective_user.id
     
     # Normalize number
@@ -1622,12 +1628,12 @@ def process_call_history_lookup(update: Update, context: CallbackContext, number
     
     # Check if number is blacklisted
     if is_blacklisted(normalized):
-        update.message.reply_text("❌ This number is blacklisted and cannot be searched.")
+        await update.message.reply_text("❌ This number is blacklisted and cannot be searched.")
         return
     
     # Check if number is protected
     if is_protected(normalized) and user_id != OWNER_ID:
-        update.message.reply_text("❌ This number is protected and cannot be searched.")
+        await update.message.reply_text("❌ This number is protected and cannot be searched.")
         return
     
     # Check if user has enough credits
@@ -1641,7 +1647,7 @@ def process_call_history_lookup(update: Update, context: CallbackContext, number
         
         reply_markup = InlineKeyboardMarkup(buttons)
         
-        update.message.reply_text(
+        await update.message.reply_text(
             "❌ **Insufficient Credits**\n\n"
             "You need 600 credits to perform this search.\n\n"
             "Get more credits:",
@@ -1653,7 +1659,7 @@ def process_call_history_lookup(update: Update, context: CallbackContext, number
     update_user_credits(user_id, -600)
     
     # Show processing message
-    processing_message = update.message.reply_text("🔍 Searching... Please wait.")
+    processing_message = await update.message.reply_text("🔍 Searching... Please wait.")
     
     try:
         # Make API request
@@ -1679,22 +1685,22 @@ def process_call_history_lookup(update: Update, context: CallbackContext, number
         log_search(user_id, "Call History", normalized, len(data) if isinstance(data, list) else 0, context)
         
         # Update processing message
-        processing_message.edit_text(formatted_response)
+        await processing_message.edit_text(formatted_response)
         
     except Exception as e:
         logger.error(f"Error in call history lookup: {e}")
-        processing_message.edit_text(
+        await processing_message.edit_text(
             "❌ **Error:** Failed to fetch information. Please try again later.\n\n"
             "📞 Contact Admin: @DataTraceSupport"
         )
 
 # Admin commands
-def admin_command(update: Update, context: CallbackContext) -> None:
+async def admin_command(update: Update, context: CallbackContext) -> None:
     user_id = update.effective_user.id
     
     # Check if user is admin or sudo
     if user_id != OWNER_ID and user_id not in SUDO_USERS:
-        update.message.reply_text("❌ You don't have permission to use this command.")
+        await update.message.reply_text("❌ You don't have permission to use this command.")
         return
     
     # Show admin panel
@@ -1711,22 +1717,22 @@ def admin_command(update: Update, context: CallbackContext) -> None:
     
     reply_markup = InlineKeyboardMarkup(buttons)
     
-    update.message.reply_text(
+    await update.message.reply_text(
         "🔧 **Admin Panel**\n\n"
         "Select an action:",
         reply_markup=reply_markup
     )
 
 # Handle admin callback queries
-def admin_callback(update: Update, context: CallbackContext) -> None:
+async def admin_callback(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
-    query.answer()
+    await query.answer()
     
     user_id = update.effective_user.id
     
     # Check if user is admin or sudo
     if user_id != OWNER_ID and user_id not in SUDO_USERS:
-        query.edit_message_text("❌ You don't have permission to use this command.")
+        await query.edit_message_text("❌ You don't have permission to use this command.")
         return
     
     if query.data == "admin_stats":
@@ -1777,7 +1783,7 @@ def admin_callback(update: Update, context: CallbackContext) -> None:
         
         reply_markup = InlineKeyboardMarkup(buttons)
         
-        query.edit_message_text(stats_text, reply_markup=reply_markup)
+        await query.edit_message_text(stats_text, reply_markup=reply_markup)
     
     elif query.data == "admin_panel":
         # Show admin panel
@@ -1794,7 +1800,7 @@ def admin_callback(update: Update, context: CallbackContext) -> None:
         
         reply_markup = InlineKeyboardMarkup(buttons)
         
-        query.edit_message_text(
+        await query.edit_message_text(
             "🔧 **Admin Panel**\n\n"
             "Select an action:",
             reply_markup=reply_markup
@@ -1804,7 +1810,7 @@ def admin_callback(update: Update, context: CallbackContext) -> None:
         # Store action in user_data
         context.user_data["admin_action"] = "add_sudo"
         
-        query.edit_message_text(
+        await query.edit_message_text(
             "👥 **Add Sudo User**\n\n"
             "Please send the User ID of the user you want to add as sudo:",
             reply_markup=InlineKeyboardMarkup([
@@ -1816,7 +1822,7 @@ def admin_callback(update: Update, context: CallbackContext) -> None:
         # Store action in user_data
         context.user_data["admin_action"] = "ban_user"
         
-        query.edit_message_text(
+        await query.edit_message_text(
             "🚫 **Ban User**\n\n"
             "Please send the User ID of the user you want to ban:",
             reply_markup=InlineKeyboardMarkup([
@@ -1828,7 +1834,7 @@ def admin_callback(update: Update, context: CallbackContext) -> None:
         # Store action in user_data
         context.user_data["admin_action"] = "unban_user"
         
-        query.edit_message_text(
+        await query.edit_message_text(
             "✅ **Unban User**\n\n"
             "Please send the User ID of the user you want to unban:",
             reply_markup=InlineKeyboardMarkup([
@@ -1840,7 +1846,7 @@ def admin_callback(update: Update, context: CallbackContext) -> None:
         # Store action in user_data
         context.user_data["admin_action"] = "add_credits"
         
-        query.edit_message_text(
+        await query.edit_message_text(
             "💰 **Add Credits**\n\n"
             "Please send the User ID and amount in this format:\n"
             "`user_id credits`\n\n"
@@ -1853,7 +1859,7 @@ def admin_callback(update: Update, context: CallbackContext) -> None:
     elif query.data == "admin_protected_numbers":
         # Only owner can view protected numbers
         if user_id != OWNER_ID:
-            query.edit_message_text("❌ Only the bot owner can view protected numbers.")
+            await query.edit_message_text("❌ Only the bot owner can view protected numbers.")
             return
         
         # Get protected numbers
@@ -1877,18 +1883,18 @@ def admin_callback(update: Update, context: CallbackContext) -> None:
         
         reply_markup = InlineKeyboardMarkup(buttons)
         
-        query.edit_message_text(protected_text, reply_markup=reply_markup)
+        await query.edit_message_text(protected_text, reply_markup=reply_markup)
     
     elif query.data == "admin_add_protected":
         # Only owner can add protected numbers
         if user_id != OWNER_ID:
-            query.edit_message_text("❌ Only the bot owner can add protected numbers.")
+            await query.edit_message_text("❌ Only the bot owner can add protected numbers.")
             return
         
         # Store action in user_data
         context.user_data["admin_action"] = "add_protected"
         
-        query.edit_message_text(
+        await query.edit_message_text(
             "🛡️ **Add Protected Number**\n\n"
             "Please send the phone number you want to protect:",
             reply_markup=InlineKeyboardMarkup([
@@ -1900,7 +1906,7 @@ def admin_callback(update: Update, context: CallbackContext) -> None:
         # Store action in user_data
         context.user_data["admin_action"] = "broadcast"
         
-        query.edit_message_text(
+        await query.edit_message_text(
             "📢 **Broadcast Message**\n\n"
             "Please send the message you want to broadcast to all users:",
             reply_markup=InlineKeyboardMarkup([
@@ -1909,13 +1915,13 @@ def admin_callback(update: Update, context: CallbackContext) -> None:
         )
 
 # Handle admin actions
-def handle_admin_action(update: Update, context: CallbackContext) -> None:
+async def handle_admin_action(update: Update, context: CallbackContext) -> None:
     user_id = update.effective_user.id
     message_text = update.message.text
     
     # Check if user is admin or sudo
     if user_id != OWNER_ID and user_id not in SUDO_USERS:
-        update.message.reply_text("❌ You don't have permission to use this command.")
+        await update.message.reply_text("❌ You don't have permission to use this command.")
         return
     
     # Check if user has an admin action pending
@@ -1932,12 +1938,12 @@ def handle_admin_action(update: Update, context: CallbackContext) -> None:
             # Add to sudo users list (in a real implementation, this would be stored in a database)
             if target_user_id not in SUDO_USERS:
                 SUDO_USERS.append(target_user_id)
-                update.message.reply_text(f"✅ User {target_user_id} has been added as a sudo user.")
+                await update.message.reply_text(f"✅ User {target_user_id} has been added as a sudo user.")
             else:
-                update.message.reply_text(f"❌ User {target_user_id} is already a sudo user.")
+                await update.message.reply_text(f"❌ User {target_user_id} is already a sudo user.")
                 
         except ValueError:
-            update.message.reply_text("❌ Invalid User ID. Please provide a valid User ID.")
+            await update.message.reply_text("❌ Invalid User ID. Please provide a valid User ID.")
     
     elif action == "ban_user":
         try:
@@ -1952,12 +1958,12 @@ def handle_admin_action(update: Update, context: CallbackContext) -> None:
                 conn.commit()
                 conn.close()
                 
-                update.message.reply_text(f"✅ User {target_user_id} has been banned.")
+                await update.message.reply_text(f"✅ User {target_user_id} has been banned.")
             else:
-                update.message.reply_text(f"❌ User {target_user_id} does not exist in the database.")
+                await update.message.reply_text(f"❌ User {target_user_id} does not exist in the database.")
                 
         except ValueError:
-            update.message.reply_text("❌ Invalid User ID. Please provide a valid User ID.")
+            await update.message.reply_text("❌ Invalid User ID. Please provide a valid User ID.")
     
     elif action == "unban_user":
         try:
@@ -1972,12 +1978,12 @@ def handle_admin_action(update: Update, context: CallbackContext) -> None:
                 conn.commit()
                 conn.close()
                 
-                update.message.reply_text(f"✅ User {target_user_id} has been unbanned.")
+                await update.message.reply_text(f"✅ User {target_user_id} has been unbanned.")
             else:
-                update.message.reply_text(f"❌ User {target_user_id} does not exist in the database.")
+                await update.message.reply_text(f"❌ User {target_user_id} does not exist in the database.")
                 
         except ValueError:
-            update.message.reply_text("❌ Invalid User ID. Please provide a valid User ID.")
+            await update.message.reply_text("❌ Invalid User ID. Please provide a valid User ID.")
     
     elif action == "add_credits":
         try:
@@ -2006,17 +2012,17 @@ def handle_admin_action(update: Update, context: CallbackContext) -> None:
                 conn.commit()
                 conn.close()
                 
-                update.message.reply_text(f"✅ Added {credits} credits to user {target_user_id}.")
+                await update.message.reply_text(f"✅ Added {credits} credits to user {target_user_id}.")
             else:
-                update.message.reply_text(f"❌ User {target_user_id} does not exist in the database.")
+                await update.message.reply_text(f"❌ User {target_user_id} does not exist in the database.")
                 
         except ValueError:
-            update.message.reply_text("❌ Invalid format. Please use: `user_id credits`")
+            await update.message.reply_text("❌ Invalid format. Please use: `user_id credits`")
     
     elif action == "add_protected":
         # Only owner can add protected numbers
         if user_id != OWNER_ID:
-            update.message.reply_text("❌ Only the bot owner can add protected numbers.")
+            await update.message.reply_text("❌ Only the bot owner can add protected numbers.")
             return
         
         # Normalize number
@@ -2039,10 +2045,10 @@ def handle_admin_action(update: Update, context: CallbackContext) -> None:
             ''', (normalized, user_id, added_date))
             
             conn.commit()
-            update.message.reply_text(f"✅ Number {normalized} has been added to protected numbers.")
+            await update.message.reply_text(f"✅ Number {normalized} has been added to protected numbers.")
             
         except sqlite3.IntegrityError:
-            update.message.reply_text(f"❌ Number {normalized} is already in the protected list.")
+            await update.message.reply_text(f"❌ Number {normalized} is already in the protected list.")
             
         finally:
             conn.close()
@@ -2060,25 +2066,25 @@ def handle_admin_action(update: Update, context: CallbackContext) -> None:
         
         for user in users:
             try:
-                context.bot.send_message(user[0], message_text)
+                await context.bot.send_message(user[0], message_text)
                 success_count += 1
                 time.sleep(0.1)  # Avoid flooding
             except Exception:
                 fail_count += 1
         
-        update.message.reply_text(
+        await update.message.reply_text(
             f"📢 **Broadcast Complete**\n\n"
             f"✅ Successfully sent to: {success_count} users\n"
             f"❌ Failed to send to: {fail_count} users"
         )
 
 # Stats command for sudo users
-def stats_command(update: Update, context: CallbackContext) -> None:
+async def stats_command(update: Update, context: CallbackContext) -> None:
     user_id = update.effective_user.id
     
     # Check if user is admin or sudo
     if user_id != OWNER_ID and user_id not in SUDO_USERS:
-        update.message.reply_text("❌ You don't have permission to use this command.")
+        await update.message.reply_text("❌ You don't have permission to use this command.")
         return
     
     # Get bot stats
@@ -2122,34 +2128,34 @@ def stats_command(update: Update, context: CallbackContext) -> None:
 • Total Credits Purchased: {total_credits_purchased}
     """
     
-    update.message.reply_text(stats_text)
+    await update.message.reply_text(stats_text)
 
 # Broadcast command for sudo users
-def broadcast_command(update: Update, context: CallbackContext) -> None:
+async def broadcast_command(update: Update, context: CallbackContext) -> None:
     user_id = update.effective_user.id
     
     # Check if user is admin or sudo
     if user_id != OWNER_ID and user_id not in SUDO_USERS:
-        update.message.reply_text("❌ You don't have permission to use this command.")
+        await update.message.reply_text("❌ You don't have permission to use this command.")
         return
     
     # Store action in user_data
     context.user_data["admin_action"] = "broadcast"
     
-    update.message.reply_text(
+    await update.message.reply_text(
         "📢 **Broadcast Message**\n\n"
         "Please send the message you want to broadcast to all users:"
     )
 
 # Buy DB/API command
-def buydb_command(update: Update, context: CallbackContext) -> None:
+async def buydb_command(update: Update, context: CallbackContext) -> None:
     buttons = [
         [InlineKeyboardButton("📞 Contact Admin", url="https://t.me/DataTraceSupport")]
     ]
     
     reply_markup = InlineKeyboardMarkup(buttons)
     
-    update.message.reply_text(
+    await update.message.reply_text(
         "🗄️ **Buy Database/API**\n\n"
         "To purchase our database or API access, please contact our admin:\n\n"
         "📞 @DataTraceSupport",
@@ -2157,14 +2163,14 @@ def buydb_command(update: Update, context: CallbackContext) -> None:
     )
 
 # Buy API command
-def buyapi_command(update: Update, context: CallbackContext) -> None:
+async def buyapi_command(update: Update, context: CallbackContext) -> None:
     buttons = [
         [InlineKeyboardButton("📞 Contact Admin", url="https://t.me/DataTraceSupport")]
     ]
     
     reply_markup = InlineKeyboardMarkup(buttons)
     
-    update.message.reply_text(
+    await update.message.reply_text(
         "🔌 **Buy API Access**\n\n"
         "To purchase API access, please contact our admin:\n\n"
         "📞 @DataTraceSupport",
@@ -2172,72 +2178,72 @@ def buyapi_command(update: Update, context: CallbackContext) -> None:
     )
 
 # Command handlers for direct lookups
-def num_command(update: Update, context: CallbackContext) -> None:
+async def num_command(update: Update, context: CallbackContext) -> None:
     if not context.args:
-        update.message.reply_text("❌ Please provide a phone number.\n\nExample: /num 9876543210")
+        await update.message.reply_text("❌ Please provide a phone number.\n\nExample: /num 9876543210")
         return
     
     number = context.args[0]
-    process_number_lookup(update, context, number)
+    await process_number_lookup(update, context, number)
 
-def pak_command(update: Update, context: CallbackContext) -> None:
+async def pak_command(update: Update, context: CallbackContext) -> None:
     if not context.args:
-        update.message.reply_text("❌ Please provide a Pakistan phone number.\n\nExample: /pak 923001234567")
+        await update.message.reply_text("❌ Please provide a Pakistan phone number.\n\nExample: /pak 923001234567")
         return
     
     number = context.args[0]
-    process_pak_number_lookup(update, context, number)
+    await process_pak_number_lookup(update, context, number)
 
-def aadhar_command(update: Update, context: CallbackContext) -> None:
+async def aadhar_command(update: Update, context: CallbackContext) -> None:
     if not context.args:
-        update.message.reply_text("❌ Please provide an Aadhar number.\n\nExample: /aadhar 123456789012")
+        await update.message.reply_text("❌ Please provide an Aadhar number.\n\nExample: /aadhar 123456789012")
         return
     
     aadhar = context.args[0]
-    process_aadhar_lookup(update, context, aadhar)
+    await process_aadhar_lookup(update, context, aadhar)
 
-def aadhar2fam_command(update: Update, context: CallbackContext) -> None:
+async def aadhar2fam_command(update: Update, context: CallbackContext) -> None:
     if not context.args:
-        update.message.reply_text("❌ Please provide an Aadhar number.\n\nExample: /aadhar2fam 123456789012")
+        await update.message.reply_text("❌ Please provide an Aadhar number.\n\nExample: /aadhar2fam 123456789012")
         return
     
     aadhar = context.args[0]
-    process_aadhar_family_lookup(update, context, aadhar)
+    await process_aadhar_family_lookup(update, context, aadhar)
 
-def upi_command(update: Update, context: CallbackContext) -> None:
+async def upi_command(update: Update, context: CallbackContext) -> None:
     if not context.args:
-        update.message.reply_text("❌ Please provide a UPI ID.\n\nExample: /upi example@upi")
+        await update.message.reply_text("❌ Please provide a UPI ID.\n\nExample: /upi example@upi")
         return
     
     upi_id = context.args[0]
-    process_upi_lookup(update, context, upi_id)
+    await process_upi_lookup(update, context, upi_id)
 
-def ip_command(update: Update, context: CallbackContext) -> None:
+async def ip_command(update: Update, context: CallbackContext) -> None:
     if not context.args:
-        update.message.reply_text("❌ Please provide an IP address.\n\nExample: /ip 8.8.8.8")
+        await update.message.reply_text("❌ Please provide an IP address.\n\nExample: /ip 8.8.8.8")
         return
     
     ip = context.args[0]
-    process_ip_lookup(update, context, ip)
+    await process_ip_lookup(update, context, ip)
 
-def tg_command(update: Update, context: CallbackContext) -> None:
+async def tg_command(update: Update, context: CallbackContext) -> None:
     if not context.args:
-        update.message.reply_text("❌ Please provide a Telegram User ID.\n\nExample: /tg 123456789")
+        await update.message.reply_text("❌ Please provide a Telegram User ID.\n\nExample: /tg 123456789")
         return
     
     user_id_str = context.args[0]
-    process_tg_user_lookup(update, context, user_id_str)
+    await process_tg_user_lookup(update, context, user_id_str)
 
-def call_command(update: Update, context: CallbackContext) -> None:
+async def call_command(update: Update, context: CallbackContext) -> None:
     if not context.args:
-        update.message.reply_text("❌ Please provide a phone number.\n\nExample: /call 9876543210")
+        await update.message.reply_text("❌ Please provide a phone number.\n\nExample: /call 9876543210")
         return
     
     number = context.args[0]
-    process_call_history_lookup(update, context, number)
+    await process_call_history_lookup(update, context, number)
 
 # Help command
-def help_command(update: Update, context: CallbackContext) -> None:
+async def help_command(update: Update, context: CallbackContext) -> None:
     help_text = """
 🔍 **DataTrace OSINT Bot - Help**
 
@@ -2284,10 +2290,10 @@ def help_command(update: Update, context: CallbackContext) -> None:
 ━━━━━━━━━━━━━━━━━━━━
     """
     
-    update.message.reply_text(help_text)
+    await update.message.reply_text(help_text)
 
 # Error handler
-def error_handler(update: Update, context: CallbackContext) -> None:
+async def error_handler(update: object, context: CallbackContext) -> None:
     logger.error(f"Update {update} caused error {context.error}")
 
 # Main function
@@ -2295,43 +2301,40 @@ def main() -> None:
     # Initialize database
     init_db()
     
-    # Create the Updater and pass it your bot's token.
-    updater = Updater(BOT_TOKEN)
-    
-    # Get the dispatcher to register handlers
-    dispatcher = updater.dispatcher
+    # Create the Application
+    application = Application.builder().token(BOT_TOKEN).build()
     
     # Register command handlers
-    dispatcher.add_handler(CommandHandler("start", start))
-    dispatcher.add_handler(CommandHandler("help", help_command))
-    dispatcher.add_handler(CommandHandler("admin", admin_command))
-    dispatcher.add_handler(CommandHandler("stats", stats_command))
-    dispatcher.add_handler(CommandHandler("gcast", broadcast_command))
-    dispatcher.add_handler(CommandHandler("buydb", buydb_command))
-    dispatcher.add_handler(CommandHandler("buyapi", buyapi_command))
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("admin", admin_command))
+    application.add_handler(CommandHandler("stats", stats_command))
+    application.add_handler(CommandHandler("gcast", broadcast_command))
+    application.add_handler(CommandHandler("buydb", buydb_command))
+    application.add_handler(CommandHandler("buyapi", buyapi_command))
     
     # Register lookup command handlers
-    dispatcher.add_handler(CommandHandler("num", num_command))
-    dispatcher.add_handler(CommandHandler("pak", pak_command))
-    dispatcher.add_handler(CommandHandler("aadhar", aadhar_command))
-    dispatcher.add_handler(CommandHandler("aadhar2fam", aadhar2fam_command))
-    dispatcher.add_handler(CommandHandler("upi", upi_command))
-    dispatcher.add_handler(CommandHandler("ip", ip_command))
-    dispatcher.add_handler(CommandHandler("tg", tg_command))
-    dispatcher.add_handler(CommandHandler("call", call_command))
+    application.add_handler(CommandHandler("num", num_command))
+    application.add_handler(CommandHandler("pak", pak_command))
+    application.add_handler(CommandHandler("aadhar", aadhar_command))
+    application.add_handler(CommandHandler("aadhar2fam", aadhar2fam_command))
+    application.add_handler(CommandHandler("upi", upi_command))
+    application.add_handler(CommandHandler("ip", ip_command))
+    application.add_handler(CommandHandler("tg", tg_command))
+    application.add_handler(CommandHandler("call", call_command))
     
     # Register callback query handler
-    dispatcher.add_handler(CallbackQueryHandler(button_callback))
-    dispatcher.add_handler(CallbackQueryHandler(admin_callback, pattern="^admin_"))
+    application.add_handler(CallbackQueryHandler(button_callback))
+    application.add_handler(CallbackQueryHandler(admin_callback, pattern="^admin_"))
     
     # Register message handler
-    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
+    application.add_handler(MessageHandler(Filters.text & ~Filters.COMMAND, handle_message))
     
     # Register admin action handler
-    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_admin_action))
+    application.add_handler(MessageHandler(Filters.text & ~Filters.COMMAND, handle_admin_action))
     
     # Register error handler
-    dispatcher.add_error_handler(error_handler)
+    application.add_error_handler(error_handler)
     
     # Set bot commands
     commands = [
@@ -2352,13 +2355,10 @@ def main() -> None:
         BotCommand("gcast", "Broadcast message")
     ]
     
-    updater.bot.set_my_commands(commands)
+    application.bot.set_my_commands(commands)
     
-    # Start the Bot
-    updater.start_polling()
-    
-    # Run the bot until you press Ctrl-C
-    updater.idle()
+    # Run the bot
+    application.run_polling()
 
 if __name__ == "__main__":
     main()
