@@ -483,9 +483,7 @@ async def main_handler(msg: types.Message):
     await msg.answer("Unknown command or input. Use /help.", reply_markup=main_menu(*get_user_status(user_id)))
 
 if __name__ == "__main__":
-    executor.start_polling(dp, skip_updates=True)    if is_admin:
-        kb.add(InlineKeyboardButton("🛡 Admin Panel", callback_data="adminpanel"))
-    return kb
+    executor.start_polling(dp, skip_updates=True)
 
 def admin_menu(is_owner=False):
     kb = InlineKeyboardMarkup(row_width=2)
