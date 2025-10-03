@@ -1,939 +1,957 @@
-import logging
-import re
-import asyncio
-from datetime import datetime
-from typing import Optional
+"""
+DataTraceOSINT Telegram Bot
+Full-featured bot implementing:
+- Multiple OSINT lookups via external APIs
+- Referral & credits system
+- Admin panel (sudo list, add credits, ban/unban, confirm purchases)
+- Group behavior: replies only when mentioned, command given, or number posted and bot mentioned
+- Join-to-use verification for required channels
+- Logging of /start and every search to configured channels
+- Protected and blacklisted numbers handling
+- Inline buttons, callbacks, and purchase workflow (admin-confirmed)
 
-from aiogram import Bot, Dispatcher, types
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ParseMode, Message, ChatType
-from aiogram.contrib.fsm_storage.memory import MemoryStorage
-from aiogram.utils import executor
-from aiogram.dispatcher.filters import BoundFilter
-from aiogram.dispatcher import FSMContext
-from aiogram.dispatcher.filters.state import State, StatesGroup
-from aiogram.utils.exceptions import MessageNotModified
+Requirements:
+- Python 3.10+
+- python-telegram-bot v20+ (async)
+- aiosqlite
+- aiohttp
+Install:
+pip install python-telegram-bot==20.5 aiosqlite aiohttp
+
+Configuration:
+Set the following environment variables or fill DEFAULTS below:
+- BOT_TOKEN
+- LOG_START_CHANNEL (e.g. -1002765060940)
+- LOG_SEARCH_CHANNEL (e.g. -1003066524164)
+- REQUIRED_CHANNELS (comma-separated channel usernames or IDs)
+- OWNER_ID (owner telegram numeric id)
+- SUDO_IDS (comma-separated numeric IDs)
+"""
+
+import os
+import re
+import json
+import logging
+import asyncio
+from typing import Optional, Tuple
 
 import aiohttp
+import aiosqlite
+from datetime import datetime
 
-# ----------------------------
-# CONFIGURATION & CONSTANTS
-# ----------------------------
+from telegram import (
+    __version__ as ptb_version,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Update,
+    MessageEntity,
+    ChatMember,
+    ChatMemberUpdated,
+)
+from telegram.constants import ParseMode
+from telegram.ext import (
+    ApplicationBuilder,
+    ContextTypes,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    filters,
+)
 
-API_TOKEN = '8219144171:AAH3HZPZvvtohlxOkTP2jJVDuEAaAllyzdU'
+# ---------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8219144171:AAH3HZPZvvtohlxOkTP2jJVDuEAaAllyzdU")
+DB_PATH = os.getenv("DB_PATH", "datatrace.db")
 
-# Channels & logs
-CHANNEL_START_LOG = -1002765060940
-CHANNEL_SEARCH_LOG = -1003066524164
+# Logging channels
+LOG_START_CHANNEL = int(os.getenv("LOG_START_CHANNEL", "-1002765060940"))
+LOG_SEARCH_CHANNEL = int(os.getenv("LOG_SEARCH_CHANNEL", "-1003066524164"))
 
-# Bot Owner & Sudo users
-OWNER_ID = 7924074157
-SUDO_USERS = {7924074157, 5294360309, 7905267752}  # full access admins
+# Required channels to join (user must be a member), can be ids or @usernames (without @)
+REQUIRED_CHANNELS = os.getenv("REQUIRED_CHANNELS", "DataTraceUpdates,DataTraceOSINTSupport")
+REQUIRED_CHANNELS = [c.strip() for c in REQUIRED_CHANNELS.split(",") if c.strip()]
 
-# Blacklisted numbers: no results shown ever
-BLACKLISTED_NUMBERS = {"+917724814462"}
+# Admins and owner
+OWNER_ID = int(os.getenv("OWNER_ID", "7924074157"))
+SUDO_IDS = [int(x) for x in os.getenv("SUDO_IDS", "7924074157,5294360309,7905267752").split(",")]
 
-# Support & Update Channels (must join)
-SUPPORT_CHANNELS = [
-    "DataTraceUpdates",
-    "DataTraceOSINTSupport"
-]
+# Protected and blacklisted numbers (can be prefilled here or managed via admin panel)
+DEFAULT_PROTECTED = {"+919876543210"}  # sample placeholder (owner-only visible)
+DEFAULT_BLACKLIST = {"+917724814462"}
 
-# Admin contact
-ADMIN_CONTACT = "@DataTraceSupport"
+# Costs
+COST_PER_SEARCH = 1  # credits per regular search
+COST_CALL_HISTORY = 600  # credits for call history paid API
+FREE_DM_SEARCHES = 2  # in private, first N searches free before requiring refer/buy
 
-# Credit prices (to be cheaper than current)
-CREDIT_PACKAGES = {
-    100: {"inr": 40, "usdt": 0.36},
-    200: {"inr": 80, "usdt": 0.72},
-    500: {"inr": 200, "usdt": 1.8},
-    1000: {"inr": 360, "usdt": 3.2},
-    2000: {"inr": 720, "usdt": 6.4},
-    5000: {"inr": 2000, "usdt": 16.0},
-}
+# Branding & Admin contact
+BRANDING_FOOTER = (
+    "\n\n—\nPowered by DataTrace\nJoin: http://t.me/DataTraceUpdates\nSupport: http://t.me/DataTraceOSINTSupport\n"
+    "Contact Admin: @DataTraceSupport"
+)
 
-# Referral commission in credits (30%)
-REFERRAL_COMMISSION_RATE = 0.30
+# APIs
+API_UPI = "https://upi-info.vercel.app/api/upi?upi_id={upi}&key=456"
+API_NUM = "http://osintx.info/API/krobetahack.php?key=SHAD0WINT3L&type=mobile&term={num}"
+API_PAK = "https://pak-num-api.vercel.app/search?number={num}"
+API_AADHAR = "http://osintx.info/API/krobetahack.php?key=SHAD0WINT3L&type=id_number&term={idnum}"
+API_AADHAR_FAMILY = "https://family-members-n5um.vercel.app/fetch?aadhaar={id_number}&key=paidchx"
+API_IP = "https://karmali.serv00.net/ip_api.php?ip={ip}"
+API_TGUSER = "https://tg-info-neon.vercel.app/user-details?user={user}"
+API_CALL_HISTORY = "https://my-vercel-flask-qmfgrzwdl-okvaipro-svgs-projects.vercel.app/api/call_statement?number={num}&days=7"
 
-# Number of free searches without referral
-FREE_SEARCHES_NO_REF = 2
-
-# API keys & URLs
-API_KEYS = {
-    "krobetahack": "SHAD0WINT3L",
-    "paidchx": "paidchx",
-}
-
-API_URLS = {
-    "upi": "https://upi-info.vercel.app/api/upi?upi_id={upi_id}&key=456",
-    "num_to_info": "http://osintx.info/API/krobetahack.php?key=SHAD0WINT3L&type=mobile&term={number}",
-    "tg_user_stats": "https://tg-info-neon.vercel.app/user-details?user={user_id}",
-    "ip_to_info": "https://karmali.serv00.net/ip_api.php?ip={ip}",
-    "pak_num_to_cnic": "https://pak-num-api.vercel.app/search?number={number}",
-    "aadhar_to_family": "https://family-members-n5um.vercel.app/fetch?aadhaar={aadhaar}&key=paidchx",
-    "aadhar_to_details": "http://osintx.info/API/krobetahack.php?key=SHAD0WINT3L&type=id_number&term={aadhaar}",
-    "call_history_paid": "https://my-vercel-flask-qmfgrzwdl-okvaipro-svgs-projects.vercel.app/api/call_statement?number={num}&days=7",
-}
-
-# Bot commands list for help
-COMMANDS_LIST = {
-    "start": "Start the bot",
-    "help": "Show this help message",
-    "num": "Lookup Indian mobile number info",
-    "pak": "Lookup Pakistan number info",
-    "aadhar": "Lookup Aadhar number info",
-    "aadhar2fam": "Lookup Aadhar family info",
-    "upi": "Lookup UPI ID info",
-    "ip": "Lookup IP address info",
-    "tguser": "Lookup Telegram user stats",
-    "buycredits": "Buy credits",
-    "refer": "Referral info & link",
-    "stats": "Admin: Show user count and stats",
-    "gcast": "Admin: Global promotion broadcast",
-    "addcredits": "Admin: Add credits to user",
-    "ban": "Admin: Ban user",
-    "unban": "Admin: Unban user",
-    "protected": "Owner: View protected numbers",
-    "buydb": "Contact admin to buy DB/API",
-    "buyapi": "Contact admin to buy DB/API",
-}
-
-# Logging configuration
-logging.basicConfig(level=logging.INFO)
+# ---------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+)
 logger = logging.getLogger(__name__)
 
-# In-memory user database simulation (replace with persistent DB in prod)
-users_db = {}
-# Structure: user_id: {
-#   "credits": int,
-#   "referrer_id": Optional[int],
-#   "referrals": set(user_ids),
-#   "banned": bool,
-#   "is_protected": bool,
-#   "free_searches_done": int,
-# }
+# ---------------------------------------------------------------------
+# Utilities
+# ---------------------------------------------------------------------
+PHONE_PATTERN = re.compile(r"(?:\+?)(?:91|92)?\d{7,12}")  # loose phone detection
 
-# Protected numbers only accessible by OWNER_ID
-protected_numbers = set()
+def fmt_dt(ts: Optional[str]) -> str:
+    if not ts:
+        return "(Not Available)"
+    try:
+        # Try parse iso
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return ts
 
-# Banned users list
-banned_users = set()
+def format_error(msg: str) -> str:
+    return f"❌ Error: {msg}\n{BRANDING_FOOTER}"
 
-# ----------------------------
-# BOT INITIALIZATION
-# ----------------------------
+def branding_footer() -> str:
+    return BRANDING_FOOTER
 
-bot = Bot(token=API_TOKEN, parse_mode=ParseMode.HTML)
-storage = MemoryStorage()
-dp = Dispatcher(bot, storage=storage)
+# ---------------------------------------------------------------------
+# DB layer
+# ---------------------------------------------------------------------
+CREATE_TABLES_SQL = """
+CREATE TABLE IF NOT EXISTS users (
+    user_id INTEGER PRIMARY KEY,
+    username TEXT,
+    first_name TEXT,
+    credits INTEGER DEFAULT 0,
+    free_searches INTEGER DEFAULT ?,
+    referred_by INTEGER,
+    joined_at TEXT,
+    is_admin INTEGER DEFAULT 0,
+    is_sudo INTEGER DEFAULT 0,
+    is_banned INTEGER DEFAULT 0
+);
 
+CREATE TABLE IF NOT EXISTS referrals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    referrer INTEGER,
+    referred INTEGER,
+    at TEXT
+);
 
-# ----------------------------
-# HELPERS
-# ----------------------------
+CREATE TABLE IF NOT EXISTS searches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    query TEXT,
+    api_used TEXT,
+    cost INTEGER,
+    at TEXT
+);
 
-def is_sudo(user_id: int) -> bool:
-    return user_id in SUDO_USERS or user_id == OWNER_ID
+CREATE TABLE IF NOT EXISTS transactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    type TEXT,
+    amount INTEGER,
+    note TEXT,
+    at TEXT
+);
 
-def is_owner(user_id: int) -> bool:
-    return user_id == OWNER_ID
+CREATE TABLE IF NOT EXISTS protected_numbers (
+    number TEXT PRIMARY KEY,
+    added_by INTEGER,
+    at TEXT
+);
 
-def format_footer() -> str:
-    return ("\n\n<i>Powered by <b>DataTrace OSINT Bot</b>\n"
-            "Join our channels:\n"
-            "• <a href='https://t.me/DataTraceUpdates'>DataTraceUpdates</a>\n"
-            "• <a href='https://t.me/DataTraceOSINTSupport'>DataTraceOSINTSupport</a>\n"
-            f"Contact Admin: {ADMIN_CONTACT}</i>")
+CREATE TABLE IF NOT EXISTS blacklist_numbers (
+    number TEXT PRIMARY KEY,
+    added_by INTEGER,
+    at TEXT
+);
+"""
 
-def is_number_blacklisted(number: str) -> bool:
-    return number in BLACKLISTED_NUMBERS
+async def init_db():
+    db = await aiosqlite.connect(DB_PATH)
+    # Parameterize free search default
+    await db.executescript(CREATE_TABLES_SQL.replace("?", str(FREE_DM_SEARCHES)))
+    await db.commit()
 
-def clean_number(number: str) -> str:
-    # Remove all non-digit except + sign, standardize format
-    number = number.strip()
-    if number.startswith("+"):
-        number = "+" + re.sub(r"\D", "", number)
-    else:
-        number = re.sub(r"\D", "", number)
-    return number
+    # Ensure owner & sudos exist
+    async with db.execute("SELECT user_id FROM users WHERE user_id = ?", (OWNER_ID,)) as cur:
+        r = await cur.fetchone()
+    if not r:
+        await db.execute(
+            "INSERT OR IGNORE INTO users (user_id, credits, free_searches, joined_at, is_admin, is_sudo) VALUES (?, ?, ?, ?, ?, ?)",
+            (OWNER_ID, 0, FREE_DM_SEARCHES, datetime.utcnow().isoformat(), 0, 1),
+        )
+    for sid in SUDO_IDS:
+        await db.execute(
+            "INSERT OR IGNORE INTO users (user_id, credits, free_searches, joined_at, is_admin, is_sudo) VALUES (?, ?, ?, ?, ?, ?)",
+            (sid, 0, FREE_DM_SEARCHES, datetime.utcnow().isoformat(), 1 if sid != OWNER_ID else 1, 1),
+        )
+    await db.commit()
+    await db.close()
 
-def credit_package_info_text() -> str:
-    lines = ["💰 <b>Credit Packages (Cheap Rates!)</b>"]
-    for credits, price in CREDIT_PACKAGES.items():
-        lines.append(f"• {credits} credits – ₹{price['inr']} | {price['usdt']} USDT")
+# DB helper functions
+async def get_user_record(user_id: int) -> dict:
+    db = await aiosqlite.connect(DB_PATH)
+    db.row_factory = aiosqlite.Row
+    async with db.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)) as cur:
+        row = await cur.fetchone()
+    if not row:
+        # create default
+        await db.execute(
+            "INSERT INTO users (user_id, credits, free_searches, joined_at) VALUES (?, ?, ?, ?)",
+            (user_id, 0, FREE_DM_SEARCHES, datetime.utcnow().isoformat()),
+        )
+        await db.commit()
+        async with db.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)) as cur2:
+            row = await cur2.fetchone()
+    await db.close()
+    return dict(row)
+
+async def update_user_credits(user_id: int, delta: int, note: str = ""):
+    db = await aiosqlite.connect(DB_PATH)
+    await db.execute("UPDATE users SET credits = credits + ? WHERE user_id = ?", (delta, user_id))
+    await db.execute(
+        "INSERT INTO transactions (user_id, type, amount, note, at) VALUES (?, ?, ?, ?, ?)",
+        (user_id, "credit_change", delta, note, datetime.utcnow().isoformat())
+    )
+    await db.commit()
+    await db.close()
+
+async def set_user_field(user_id: int, field: str, value):
+    db = await aiosqlite.connect(DB_PATH)
+    await db.execute(f"UPDATE users SET {field} = ? WHERE user_id = ?", (value, user_id))
+    await db.commit()
+    await db.close()
+
+async def add_referral(referrer: int, referred: int):
+    db = await aiosqlite.connect(DB_PATH)
+    await db.execute("INSERT INTO referrals (referrer, referred, at) VALUES (?, ?, ?)",
+                     (referrer, referred, datetime.utcnow().isoformat()))
+    await db.execute("UPDATE users SET referred_by = ? WHERE user_id = ?", (referrer, referred))
+    await db.commit()
+    await db.close()
+
+async def record_search(user_id: int, query: str, api_used: str, cost: int):
+    db = await aiosqlite.connect(DB_PATH)
+    await db.execute("INSERT INTO searches (user_id, query, api_used, cost, at) VALUES (?, ?, ?, ?, ?)",
+                     (user_id, query, api_used, cost, datetime.utcnow().isoformat()))
+    await db.commit()
+    await db.close()
+
+async def add_protected_number(number: str, added_by: int):
+    db = await aiosqlite.connect(DB_PATH)
+    await db.execute("INSERT OR IGNORE INTO protected_numbers (number, added_by, at) VALUES (?, ?, ?)",
+                     (number, added_by, datetime.utcnow().isoformat()))
+    await db.commit()
+    await db.close()
+
+async def add_blacklist_number(number: str, added_by: int):
+    db = await aiosqlite.connect(DB_PATH)
+    await db.execute("INSERT OR IGNORE INTO blacklist_numbers (number, added_by, at) VALUES (?, ?, ?)",
+                     (number, added_by, datetime.utcnow().isoformat()))
+    await db.commit()
+    await db.close()
+
+async def is_protected_number(number: str) -> bool:
+    db = await aiosqlite.connect(DB_PATH)
+    async with db.execute("SELECT number FROM protected_numbers WHERE number = ?", (number,)) as cur:
+        r = await cur.fetchone()
+    await db.close()
+    return r is not None
+
+async def is_blacklisted_number(number: str) -> bool:
+    db = await aiosqlite.connect(DB_PATH)
+    async with db.execute("SELECT number FROM blacklist_numbers WHERE number = ?", (number,)) as cur:
+        r = await cur.fetchone()
+    await db.close()
+    return r is not None
+
+# ---------------------------------------------------------------------
+# API wrappers & formatters
+# ---------------------------------------------------------------------
+async def fetch_json(session: aiohttp.ClientSession, url: str, timeout=15):
+    try:
+        async with session.get(url, timeout=timeout) as resp:
+            if resp.status != 200:
+                return {"error": f"HTTP {resp.status}"}
+            data = await resp.json(content_type=None)
+            return data
+    except Exception as e:
+        return {"error": str(e)}
+
+async def api_upi_lookup(session, upi_id: str) -> str:
+    url = API_UPI.format(upi=upi_id)
+    data = await fetch_json(session, url)
+    if "error" in data:
+        return format_error(f"UPI API error: {data['error']}")
+    # Example formatting based on provided example
+    bank_raw = data.get("bank_details_raw", {})
+    vpa = data.get("vpa_details", {})
+    lines = ["🏦 *BANK DETAILS*"]
+    for k in ["ADDRESS", "BANK", "BANKCODE", "BRANCH", "CENTRE", "CITY", "DISTRICT", "STATE", "IFSC", "MICR"]:
+        if bank_raw.get(k):
+            lines.append(f"*{k.title()}:* {bank_raw.get(k)}")
+    for k in ["IMPS", "NEFT", "RTGS", "UPI"]:
+        if bank_raw.get(k) is True:
+            lines.append(f"*{k}:* ✅")
+        elif bank_raw.get(k) is False:
+            lines.append(f"*{k}:* ❌")
+    lines.append("\n👤 *ACCOUNT HOLDER*")
+    lines.append(f"*NAME:* {vpa.get('name','(Not Available)')}")
+    lines.append(f"*VPA:* {vpa.get('vpa','(Not Available)')}")
+    lines.append(f"{branding_footer()}")
     return "\n".join(lines)
 
-def user_referral_link(user_id: int) -> str:
-    return f"https://t.me/YourBotUsername?start=ref{user_id}"
+async def api_ip_lookup(session, ip: str) -> str:
+    url = API_IP.format(ip=ip)
+    data = await fetch_json(session, url)
+    if "error" in data:
+        return format_error(f"IP API error: {data['error']}")
+    # expect keys per example
+    lines = ["🗾 *IP INFO*"]
+    for k_label, key in [
+        ("IP", "ip"), ("Country", "country"), ("Country Code", "countryCode"),
+        ("Region", "region"), ("Region Name", "regionName"), ("City", "city"),
+        ("Zip", "zip"), ("Latitude", "lat"), ("Longitude", "lon"),
+        ("Timezone", "timezone"), ("ISP", "isp"), ("Organization", "org"), ("AS", "as")
+    ]:
+        if key in data:
+            lines.append(f"*{k_label}:* {data.get(key)}")
+    lines.append(branding_footer())
+    return "\n".join(lines)
 
-def check_user_join_channels(user_id: int) -> bool:
-    # Dummy for demo: In production, use Telegram API or bot API to check membership
-    # Here we assume user joined both channels
-    return True
+async def api_num_lookup(session, num: str) -> str:
+    url = API_NUM.format(num=num)
+    data = await fetch_json(session, url)
+    if "error" in data:
+        return format_error(f"Number API error: {data['error']}")
+    # Data given as {"data":[{...}]}
+    arr = data.get("data") or []
+    if not arr:
+        return format_error("No information found for the number.")
+    d = arr[0]
+    lines = ["📱 *NUMBER DETAILS*"]
+    mapping = [
+        ("MOBILE", "mobile"), ("ALT MOBILE", "alt"), ("NAME", "name"),
+        ("FULL NAME", "fname"), ("ADDRESS", "address"), ("CIRCLE", "circle"), ("ID", "id")
+    ]
+    for label, key in mapping:
+        val = d.get(key, "(Not Available)")
+        if val:
+            val = val.replace("!", ",") if isinstance(val, str) else val
+        lines.append(f"*{label}:* {val}")
+    lines.append(branding_footer())
+    return "\n".join(lines)
 
-def get_user_data(user_id: int) -> dict:
-    if user_id not in users_db:
-        users_db[user_id] = {
-            "credits": 0,
-            "referrer_id": None,
-            "referrals": set(),
-            "banned": False,
-            "is_protected": False,
-            "free_searches_done": 0,
-        }
-    return users_db[user_id]
+async def api_pak_lookup(session, num: str) -> str:
+    url = API_PAK.format(num=num)
+    data = await fetch_json(session, url)
+    if "error" in data:
+        return format_error(f"Pakistan API error: {data['error']}")
+    results = data.get("results") or []
+    if not results:
+        return format_error("No Pakistan info found.")
+    lines = ["🇵🇰 *PAKISTAN INFO*"]
+    for idx, r in enumerate(results, start=1):
+        lines.append(f"{idx}️⃣")
+        lines.append(f"*NAME:* {r.get('Name','(Not Available)')}")
+        lines.append(f"*CNIC:* {r.get('CNIC','(Not Available)')}")
+        lines.append(f"*MOBILE:* {r.get('Mobile','(Not Available)')}")
+        addr = r.get('Address') or "(Not Available)"
+        lines.append(f"*ADDRESS:* {addr}")
+        lines.append("---")
+    lines.append(branding_footer())
+    return "\n".join(lines)
 
-async def fetch_api_json(session: aiohttp.ClientSession, url: str) -> Optional[dict]:
-    try:
-        async with session.get(url, timeout=15) as resp:
-            if resp.status == 200:
-                return await resp.json()
-            else:
-                logger.warning(f"API request failed [{resp.status}]: {url}")
-    except Exception as e:
-        logger.error(f"API request exception: {e}")
-    return None
+async def api_aadhar_lookup(session, idnum: str) -> str:
+    url = API_AADHAR.format(idnum=idnum)
+    data = await fetch_json(session, url)
+    if "error" in data:
+        return format_error(f"Aadhar API error: {data['error']}")
+    arr = data if isinstance(data, list) else (data.get("data") or [])
+    if not arr:
+        return format_error("No Aadhar info found.")
+    # reuse formatting like number
+    lines = ["🆔 *AADHAR INFO*"]
+    for d in arr:
+        lines.append(f"*NAME:* {d.get('name','(Not Available)')}")
+        lines.append(f"*MOBILE:* {d.get('mobile','(Not Available)')}")
+        lines.append(f"*FATHER:* {d.get('father_name','(Not Available)')}")
+        addr = d.get('address','(Not Available)').replace("!", ",")
+        lines.append(f"*ADDRESS:* {addr}")
+        lines.append("---")
+    lines.append(branding_footer())
+    return "\n".join(lines)
 
-def create_main_keyboard() -> InlineKeyboardMarkup:
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(
-        InlineKeyboardButton("Lookup Number", callback_data="lookup_num"),
-        InlineKeyboardButton("Lookup UPI ID", callback_data="lookup_upi"),
-    )
-    kb.add(
-        InlineKeyboardButton("Buy Credits", callback_data="buy_credits"),
-        InlineKeyboardButton("Referral Info", callback_data="referral_info"),
-    )
-    kb.add(InlineKeyboardButton("Help / Commands", callback_data="help_commands"))
-    return kb
+async def api_aadhar_family(session, idnum: str) -> str:
+    url = API_AADHAR_FAMILY.format(id_number=idnum)
+    data = await fetch_json(session, url)
+    if "error" in data:
+        return format_error(f"Aadhar family API error: {data['error']}")
+    mdlist = data.get("memberDetailsList") or []
+    if not mdlist:
+        return format_error("No family info found.")
+    lines = ["🆔 *AADHAR FAMILY INFO*"]
+    lines.append(f"*RC ID:* {data.get('rcId', '(Not Available)')}")
+    lines.append(f"*SCHEME:* {data.get('schemeId', '(Not Available)')} ({data.get('schemeName','')})")
+    lines.append(f"*DISTRICT:* {data.get('homeDistName','(Not Available)')}")
+    lines.append(f"*STATE:* {data.get('homeStateName','(Not Available)')}")
+    lines.append("\n👨‍👩‍👧 *FAMILY MEMBERS:*")
+    for idx, m in enumerate(mdlist, start=1):
+        lines.append(f"{idx}️⃣ {m.get('memberName','(Not Available)')} — {m.get('releationship_name','(Not Available)')}")
+    lines.append(branding_footer())
+    return "\n".join(lines)
 
-def create_back_contact_keyboard() -> InlineKeyboardMarkup:
-    kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(
-        InlineKeyboardButton("⬅️ Back", callback_data="back_to_main"),
-        InlineKeyboardButton("Contact Admin", url=f"https://t.me/{ADMIN_CONTACT.strip('@')}")
-    )
-    return kb
+async def api_tguser_lookup(session, username_or_id: str) -> str:
+    url = API_TGUSER.format(user=username_or_id)
+    data = await fetch_json(session, url)
+    if "error" in data:
+        return format_error(f"TG user API error: {data['error']}")
+    d = data.get("data") or {}
+    if not d:
+        return format_error("No Telegram user data found.")
+    lines = ["👤 *TELEGRAM USER STATS*"]
+    lines.append(f"*NAME:* {d.get('first_name','')}{' ' + (d.get('last_name') or '')}")
+    lines.append(f"*USER ID:* {d.get('id','(Not Available)')}")
+    lines.append(f"*IS BOT:* {'✅' if d.get('is_bot') else '❌'}")
+    lines.append(f"*ACTIVE:* {'✅' if d.get('is_active') else '❌'}")
+    lines.append("\n📊 *STATS*")
+    lines.append(f"*TOTAL GROUPS:* {d.get('total_groups','0')}")
+    lines.append(f"*ADMIN IN GROUPS:* {d.get('adm_in_groups','0')}")
+    lines.append(f"*TOTAL MESSAGES:* {d.get('total_msg_count','0')}")
+    lines.append(f"*MESSAGES IN GROUPS:* {d.get('msg_in_groups_count','0')}")
+    lines.append(f"*FIRST MSG DATE:* {fmt_dt(d.get('first_msg_date'))}")
+    lines.append(f"*LAST MSG DATE:* {fmt_dt(d.get('last_msg_date'))}")
+    lines.append(branding_footer())
+    return "\n".join(lines)
 
-def create_buy_credits_keyboard() -> InlineKeyboardMarkup:
-    kb = InlineKeyboardMarkup(row_width=1)
-    for credits, price in CREDIT_PACKAGES.items():
-        text = f"Buy {credits} credits - ₹{price['inr']}"
-        kb.insert(InlineKeyboardButton(text, callback_data=f"buy_{credits}"))
-    kb.add(InlineKeyboardButton("⬅️ Back", callback_data="back_to_main"))
-    return kb
+async def api_call_history(session, num: str) -> str:
+    url = API_CALL_HISTORY.format(num=num)
+    data = await fetch_json(session, url)
+    if "error" in data:
+        return format_error(f"Call history API error: {data['error']}")
+    # No example given; print something generic
+    lines = ["📞 *CALL HISTORY*"]
+    lines.append(f"Results for: {num}")
+    # If data contains list of calls
+    calls = data.get("calls") if isinstance(data, dict) else None
+    if calls:
+        for c in calls:
+            lines.append(f"- {c.get('date','?')} | {c.get('direction','?')} | {c.get('duration','?')}s")
+    else:
+        # fallback stringify keys
+        lines.append("*Raw Result Summary:*")
+        lines.append(" (Data fetched from API)")
+    lines.append(branding_footer())
+    return "\n".join(lines)
 
-def format_credits_balance(user_id: int) -> str:
-    user_data = get_user_data(user_id)
-    return f"💳 Your credits balance: <b>{user_data['credits']}</b> credits"
+# ---------------------------------------------------------------------
+# Bot behaviors & command handlers
+# ---------------------------------------------------------------------
+class DataTraceBot:
+    def __init__(self, token: str):
+        self.app = ApplicationBuilder().token(token).build()
+        # register handlers
+        self.app.add_handler(CommandHandler("start", self.start))
+        self.app.add_handler(CommandHandler("help", self.help_cmd))
+        self.app.add_handler(CommandHandler("buycredits", self.buycredits_cmd))
+        self.app.add_handler(CommandHandler("stats", self.stats_cmd))
+        self.app.add_handler(CommandHandler("admin", self.admin_cmd))
+        # API commands
+        self.app.add_handler(CommandHandler("num", self.cmd_num))
+        self.app.add_handler(CommandHandler("pak", self.cmd_pak))
+        self.app.add_handler(CommandHandler("upi", self.cmd_upi))
+        self.app.add_handler(CommandHandler("aadhar", self.cmd_aadhar))
+        self.app.add_handler(CommandHandler("aadhar2fam", self.cmd_aadhar_fam))
+        self.app.add_handler(CommandHandler("ip", self.cmd_ip))
+        self.app.add_handler(CommandHandler("tguser", self.cmd_tguser))
+        self.app.add_handler(CommandHandler("callhistory", self.cmd_callhistory))
+        self.app.add_handler(CallbackQueryHandler(self.cb_handler))
+        # Messages
+        self.app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), self.message_handler))
+        # to ensure bot only replies in groups when mentioned, we'll have logic in message_handler
+        # start-up tasks
+        self.session = aiohttp.ClientSession()
 
-def add_credits(user_id: int, amount: int):
-    user_data = get_user_data(user_id)
-    user_data['credits'] += amount
-
-def deduct_credits(user_id: int, amount: int) -> bool:
-    user_data = get_user_data(user_id)
-    if user_data['credits'] >= amount:
-        user_data['credits'] -= amount
-        return True
-    return False
-
-def add_referral(referrer_id: int, referred_id: int):
-    referrer = get_user_data(referrer_id)
-    referrer['referrals'].add(referred_id)
-
-def add_referral_commission(referrer_id: int, amount_credits: int):
-    commission = int(amount_credits * REFERRAL_COMMISSION_RATE)
-    add_credits(referrer_id, commission)
-    return commission
-
-# ----------------------------
-# FILTERS
-# ----------------------------
-
-class IsUserBanned(BoundFilter):
-    async def check(self, message: Message) -> bool:
-        user_id = message.from_user.id
-        return get_user_data(user_id).get("banned", False)
-
-class IsUserJoinedChannels(BoundFilter):
-    async def check(self, message: Message) -> bool:
-        user_id = message.from_user.id
-        return check_user_join_channels(user_id)
-
-# Only reply in groups when bot is mentioned or command used or number message
-class ReplyInGroupFilter(BoundFilter):
-    async def check(self, message: Message) -> bool:
-        if message.chat.type in [ChatType.GROUP, ChatType.SUPERGROUP]:
-            # Reply only if bot is mentioned or command is used or message contains number pattern
-            bot_mentioned = False
-            if message.entities:
-                for entity in message.entities:
-                    if entity.type == "mention":
-                        text = message.text[entity.offset:entity.offset + entity.length]
-                        if text.lower() == f"@{(await bot.get_me()).username.lower()}":
-                            bot_mentioned = True
-                            break
-            is_command = bool(message.entities and message.entities[0].type == "bot_command")
-            has_number = bool(re.search(r"\+?\d{7,15}", message.text or ""))
-            return bot_mentioned or is_command or has_number
-        return True  # Always reply in private chats
-
-dp.filters_factory.bind(IsUserBanned)
-dp.filters_factory.bind(IsUserJoinedChannels)
-dp.filters_factory.bind(ReplyInGroupFilter)
-
-# ----------------------------
-# STATES FOR FSM
-# ----------------------------
-
-class LookupStates(StatesGroup):
-    waiting_for_input = State()
-
-# ----------------------------
-# COMMAND HANDLERS
-# ----------------------------
-
-@dp.message_handler(commands=['start'])
-async def cmd_start(message: types.Message):
-    user_id = message.from_user.id
-    args = message.get_args()
-    user_data = get_user_data(user_id)
-
-    # Log start usage
-    await bot.send_message(CHANNEL_START_LOG, f"User <a href='tg://user?id={user_id}'>{message.from_user.full_name}</a> started the bot.")
-
-    # Check referral parameter
-    if args.startswith("ref"):
+    async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user = update.effective_user
+        args = context.args or []
+        payload = args[0] if args else None
+        await init_db()  # ensure DB ready
+        # Log start
         try:
-            referrer_id = int(args[3:])
-            if referrer_id != user_id and referrer_id in users_db:
-                if user_data['referrer_id'] is None:
-                    user_data['referrer_id'] = referrer_id
-                    add_referral(referrer_id, user_id)
-                    # Give 1 free credit to referred user and referrer commission 0 for this event
-                    add_credits(user_id, 1)
-                    commission = add_referral_commission(referrer_id, 0)  # no purchase yet, no commission
-        except ValueError:
+            await self.app.bot.send_message(LOG_START_CHANNEL, f"/start by {user.id} @{user.username or ''} ({user.full_name})")
+        except Exception:
             pass
 
-    # Check user joined required channels
-    if not check_user_join_channels(user_id):
-        text = ("<b>❗ You must join our channels to use this bot:</b>\n"
-                "• <a href='https://t.me/DataTraceUpdates'>DataTraceUpdates</a>\n"
-                "• <a href='https://t.me/DataTraceOSINTSupport'>DataTraceOSINTSupport</a>\n\n"
-                "After joining, please /start again.")
-        await message.answer(text)
-        return
+        # create user record / update names
+        db_user = await get_user_record(user.id)
+        # update names
+        if user.username or user.first_name:
+            await set_user_field(user.id, "username", user.username or "")
+            await set_user_field(user.id, "first_name", user.first_name or "")
 
-    # Welcome message with main menu
-    text = (f"👋 Hello, <b>{message.from_user.full_name}</b>!\n\n"
-            "This bot provides OSINT lookups with referral-based credits system.\n\n"
-            + format_credits_balance(user_id) +
-            "\n\nUse the buttons below to start.\n"
-            + format_footer())
-    await message.answer(text, reply_markup=create_main_keyboard())
+        # check required channels membership
+        not_member = []
+        for ch in REQUIRED_CHANNELS:
+            try:
+                chat_id = ch if ch.startswith("-100") or ch.startswith("@") else ("@" + ch if not ch.startswith("@") else ch)
+                member = await self.app.bot.get_chat_member(chat_id, user.id)
+                if member.status in ("left", "kicked"):
+                    not_member.append(ch)
+            except Exception:
+                not_member.append(ch)
+        if not_member:
+            keyboard = InlineKeyboardMarkup(
+                [
+                    [InlineKeyboardButton("Join Updates", url="http://t.me/DataTraceUpdates"),
+                     InlineKeyboardButton("Join Support", url="http://t.me/DataTraceOSINTSupport")],
+                    [InlineKeyboardButton("I Joined ✅", callback_data="verify_join")]
+                ]
+            )
+            await update.message.reply_text(
+                "Welcome!\nBefore you can use the bot, please join the required channels:\n\n"
+                "• http://t.me/DataTraceUpdates\n• http://t.me/DataTraceOSINTSupport\n\n"
+                "Press 'I Joined' after joining.",
+                reply_markup=keyboard
+            )
+            return
 
-@dp.message_handler(commands=['help'])
-async def cmd_help(message: types.Message):
-    help_text = "<b>🤖 Bot Commands & Usage</b>\n\n"
-    for cmd, desc in COMMANDS_LIST.items():
-        help_text += f"/{cmd} - {desc}\n"
-    help_text += "\n" + format_footer()
-    await message.answer(help_text, reply_markup=create_back_contact_keyboard())
+        # handle referral payload
+        if payload:
+            # expecting numeric referrer id
+            try:
+                ref_id = int(payload)
+                if ref_id != user.id:
+                    # grant 1 free credit to the referred user
+                    # and record referral
+                    await update_user_credits(user.id, 1, note="Referral join bonus")
+                    await add_referral(ref_id, user.id)
+                    await update.message.reply_text("✅ You received 1 free credit for joining via referral!\nUse /help to see commands.")
+                    # notify referrer
+                    try:
+                        await self.app.bot.send_message(ref_id, f"🎉 Your referral @{user.username or user.id} joined. You will receive 30% credits when they buy.")
+                    except Exception:
+                        pass
+                else:
+                    await update.message.reply_text("Welcome! Use /help to see commands.")
+            except Exception:
+                await update.message.reply_text("Welcome! Use /help to see commands.")
+        else:
+            await update.message.reply_text("Welcome! Use /help to see commands.")
 
-@dp.message_handler(commands=['stats'])
-async def cmd_stats(message: types.Message):
-    user_id = message.from_user.id
-    if not is_sudo(user_id):
-        await message.reply("❌ You don't have permission to use this command.")
-        return
-    user_count = len(users_db)
-    banned_count = sum(1 for u in users_db.values() if u.get("banned"))
-    protected_count = len(protected_numbers)
-    text = (f"<b>📊 Bot Stats</b>\n\n"
-            f"• Total users: {user_count}\n"
-            f"• Banned users: {banned_count}\n"
-            f"• Protected numbers: {protected_count}\n"
-            f"• Sudo admins: {len(SUDO_USERS)}\n\n" + format_footer())
-    await message.answer(text)
-
-@dp.message_handler(commands=['gcast'])
-async def cmd_gcast(message: types.Message):
-    user_id = message.from_user.id
-    if not is_sudo(user_id):
-        await message.reply("❌ You don't have permission to send global messages.")
-        return
-    text = message.get_args()
-    if not text:
-        await message.reply("Usage: /gcast <message>")
-        return
-    count = 0
-    for uid in users_db.keys():
-        try:
-            await bot.send_message(uid, text)
-            count += 1
-            await asyncio.sleep(0.05)  # small delay to avoid flood
-        except Exception:
-            continue
-    await message.reply(f"✅ Broadcast sent to {count} users.")
-
-@dp.message_handler(commands=['ban'])
-async def cmd_ban(message: types.Message):
-    user_id = message.from_user.id
-    if not is_sudo(user_id):
-        await message.reply("❌ You don't have permission to ban users.")
-        return
-    args = message.get_args()
-    if not args.isdigit():
-        await message.reply("Usage: /ban <user_id>")
-        return
-    target_id = int(args)
-    user_data = get_user_data(target_id)
-    user_data['banned'] = True
-    banned_users.add(target_id)
-    await message.reply(f"User {target_id} has been banned.")
-
-@dp.message_handler(commands=['unban'])
-async def cmd_unban(message: types.Message):
-    user_id = message.from_user.id
-    if not is_sudo(user_id):
-        await message.reply("❌ You don't have permission to unban users.")
-        return
-    args = message.get_args()
-    if not args.isdigit():
-        await message.reply("Usage: /unban <user_id>")
-        return
-    target_id = int(args)
-    user_data = get_user_data(target_id)
-    user_data['banned'] = False
-    banned_users.discard(target_id)
-    await message.reply(f"User {target_id} has been unbanned.")
-
-@dp.message_handler(commands=['addcredits'])
-async def cmd_addcredits(message: types.Message):
-    user_id = message.from_user.id
-    if not is_sudo(user_id):
-        await message.reply("❌ You don't have permission to add credits.")
-        return
-    args = message.get_args().split()
-    if len(args) != 2 or not args[0].isdigit() or not args[1].isdigit():
-        await message.reply("Usage: /addcredits <user_id> <amount>")
-        return
-    target_id = int(args[0])
-    amount = int(args[1])
-    add_credits(target_id, amount)
-    await message.reply(f"Added {amount} credits to user {target_id}.")
-
-@dp.message_handler(commands=['protected'])
-async def cmd_protected(message: types.Message):
-    user_id = message.from_user.id
-    if not is_owner(user_id):
-        await message.reply("❌ You don't have permission to view protected numbers.")
-        return
-    if not protected_numbers:
-        await message.reply("No protected numbers set.")
-        return
-    text = "<b>🔒 Protected Numbers (Owner Only)</b>\n\n"
-    for num in protected_numbers:
-        text += f"• {num}\n"
-    await message.answer(text)
-
-@dp.message_handler(commands=['buydb', 'buyapi'])
-async def cmd_buydb_buyapi(message: types.Message):
-    await message.answer(f"To buy DB/API access, please contact admin: {ADMIN_CONTACT}")
-
-# ----------------------------
-# CALLBACK QUERY HANDLERS
-# ----------------------------
-
-@dp.callback_query_handler(lambda c: c.data == "back_to_main")
-async def callback_back_to_main(callback_query: types.CallbackQuery):
-    await callback_query.message.edit_text(
-        f"👋 Welcome back! Use the buttons below to start.\n\n{format_credits_balance(callback_query.from_user.id)}\n\n{format_footer()}",
-        reply_markup=create_main_keyboard()
-    )
-    await callback_query.answer()
-
-@dp.callback_query_handler(lambda c: c.data == "lookup_num")
-async def callback_lookup_num(callback_query: types.CallbackQuery):
-    await LookupStates.waiting_for_input.set()
-    await callback_query.message.edit_text("📱 Please send me the Indian or Pakistani mobile number to lookup.\n\n"
-                                           "You can send with or without country code (+91 or +92).\n\n"
-                                           "Or send /cancel to abort.\n\n" + format_footer(),
-                                           reply_markup=create_back_contact_keyboard())
-    await callback_query.answer()
-
-@dp.callback_query_handler(lambda c: c.data == "lookup_upi")
-async def callback_lookup_upi(callback_query: types.CallbackQuery):
-    await LookupStates.waiting_for_input.set()
-    state = dp.current_state(user=callback_query.from_user.id)
-    await state.update_data(lookup_type="upi")
-    await callback_query.message.edit_text("💳 Please send me the UPI ID to lookup.\n\nExample: example@upi\n\n"
-                                           "Or send /cancel to abort.\n\n" + format_footer(),
-                                           reply_markup=create_back_contact_keyboard())
-    await callback_query.answer()
-
-@dp.callback_query_handler(lambda c: c.data == "buy_credits")
-async def callback_buy_credits(callback_query: types.CallbackQuery):
-    await callback_query.message.edit_text("💰 Choose a credit package to buy:\n\n" +
-                                           credit_package_info_text() + "\n\n" + format_footer(),
-                                           reply_markup=create_buy_credits_keyboard())
-    await callback_query.answer()
-
-@dp.callback_query_handler(lambda c: c.data == "referral_info")
-async def callback_referral_info(callback_query: types.CallbackQuery):
-    user_id = callback_query.from_user.id
-    user_data = get_user_data(user_id)
-    referral_link = user_referral_link(user_id)
-    referral_count = len(user_data.get("referrals", set()))
-    text = (
-        "<b>🤝 Referral Program</b>\n\n"
-        "Earn rewards by inviting friends to use the bot!\n\n"
-        "How it works:\n"
-        f"• Share your personal referral link:\n<code>{referral_link}</code>\n"
-        "• When someone starts the bot using your link, they get 1 free credit instantly.\n"
-        "• When your referral buys credits, you earn 30% commission in credits.\n\n"
-        f"Your referrals: <b>{referral_count}</b>\n"
-        f"Your current credits: <b>{user_data['credits']}</b>\n\n"
-        "Invite more friends to earn more credits!\n\n" + format_footer()
-    )
-    await callback_query.message.edit_text(text, reply_markup=create_back_contact_keyboard())
-    await callback_query.answer()
-
-@dp.callback_query_handler(lambda c: c.data.startswith("buy_"))
-async def callback_buy_package(callback_query: types.CallbackQuery):
-    user_id = callback_query.from_user.id
-    amount_str = callback_query.data[4:]
-    if not amount_str.isdigit():
-        await callback_query.answer("Invalid package selected.", show_alert=True)
-        return
-    credits = int(amount_str)
-    # Note: In real bot, here you would integrate payment gateway to process purchase
-    # For demo, we simulate instant purchase
-    add_credits(user_id, credits)
-    await callback_query.message.edit_text(
-        f"✅ You have successfully bought <b>{credits}</b> credits!\n\n{format_credits_balance(user_id)}\n\n" + format_footer(),
-        reply_markup=create_main_keyboard()
-    )
-    await callback_query.answer("Purchase successful!")
-
-# ----------------------------
-# MESSAGE HANDLERS
-# ----------------------------
-
-@dp.message_handler(commands=['cancel'], state='*')
-async def cmd_cancel(message: types.Message, state: FSMContext):
-    await state.finish()
-    await message.reply("❌ Operation cancelled.", reply_markup=create_main_keyboard())
-
-@dp.message_handler(state=LookupStates.waiting_for_input)
-async def process_lookup_input(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    user_data = get_user_data(user_id)
-    if user_data.get("banned", False):
-        await message.reply("🚫 You are banned from using this bot.")
-        await state.finish()
-        return
-
-    # Check joined channels before processing
-    if not check_user_join_channels(user_id):
-        await message.reply(
-            "❗ Please join the required channels to use this bot:\n"
-            "• https://t.me/DataTraceUpdates\n"
-            "• https://t.me/DataTraceOSINTSupport\n\n"
-            "Then /start again."
+    async def help_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user = update.effective_user
+        text = (
+            "*Main Commands*\n"
+            "/num <number or +91...> - Lookup Indian number\n"
+            "/pak <number or +92...> - Pakistan number\n"
+            "/upi <vpa@bank> - UPI info\n"
+            "/aadhar <id> - Aadhar lookup\n"
+            "/aadhar2fam <id> - Aadhar family lookup\n"
+            "/ip <ip> - IP lookup\n"
+            "/tguser <username_or_id> - Telegram user stats\n"
+            "/callhistory <number> - Paid: call history (600 credits)\n"
+            "/buycredits - Buy credits (admin will confirm)\n"
+            "/stats - (sudos only) bot stats\n\n"
+            "Bot replies in groups only when mentioned, or when you use a command, or when you mention a number while tagging the bot.\n\n"
+            f"{branding_footer()}"
         )
-        await state.finish()
-        return
+        keyboard = InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("Main Commands", callback_data="show_commands")],
+                [InlineKeyboardButton("Buy Credits", callback_data="buy_credits_cb"),
+                 InlineKeyboardButton("Contact Admin", url="http://t.me/DataTraceSupport")]
+            ]
+        )
+        await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=keyboard)
 
-    data = await state.get_data()
-    lookup_type = data.get("lookup_type", "number")
+    async def buycredits_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user = update.effective_user
+        kb = InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("100 — ₹50", callback_data="buy_100"),
+                 InlineKeyboardButton("200 — ₹100", callback_data="buy_200")],
+                [InlineKeyboardButton("500 — ₹250", callback_data="buy_500"),
+                 InlineKeyboardButton("1000 — ₹450", callback_data="buy_1000")],
+                [InlineKeyboardButton("Contact Admin", url="http://t.me/DataTraceSupport")]
+            ]
+        )
+        await update.message.reply_text("Choose a pack. After payment, press 'I Paid' -> admin will confirm and credits will be added.", reply_markup=kb)
 
-    # Enforce credit usage or referral/free searches
-    if user_id not in SUDO_USERS:
-        if user_data['credits'] < 1:
-            # Check free searches done
-            if user_data['free_searches_done'] < FREE_SEARCHES_NO_REF:
-                # Allow free search but count it
-                user_data['free_searches_done'] += 1
+    async def stats_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user = update.effective_user
+        if user.id not in SUDO_IDS:
+            await update.message.reply_text("Unauthorized.")
+            return
+        # return summary stats
+        db = await aiosqlite.connect(DB_PATH)
+        async with db.execute("SELECT COUNT(*) as c FROM users") as cur:
+            r = await cur.fetchone()
+        total_users = r[0] if r else 0
+        async with db.execute("SELECT COUNT(*) as c FROM searches") as cur:
+            r2 = await cur.fetchone()
+        total_searches = r2[0] if r2 else 0
+        await db.close()
+        await update.message.reply_text(f"Users: {total_users}\nTotal searches: {total_searches}")
+
+    async def admin_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user = update.effective_user
+        if user.id not in SUDO_IDS:
+            await update.message.reply_text("You are not an admin.")
+            return
+        kb = InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("Add Credits", callback_data="admin_add_credits")],
+                [InlineKeyboardButton("Ban User", callback_data="admin_ban_user"),
+                 InlineKeyboardButton("Unban User", callback_data="admin_unban_user")],
+                [InlineKeyboardButton("Add Protected Number", callback_data="admin_add_prot"),
+                 InlineKeyboardButton("Add Blacklist Number", callback_data="admin_add_black")]
+            ]
+        )
+        await update.message.reply_text("Admin panel:", reply_markup=kb)
+
+    # Command handlers mapping to central lookup
+    async def cmd_num(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await self.handle_lookup_command(update, context, "num")
+
+    async def cmd_pak(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await self.handle_lookup_command(update, context, "pak")
+
+    async def cmd_upi(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await self.handle_lookup_command(update, context, "upi")
+
+    async def cmd_aadhar(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await self.handle_lookup_command(update, context, "aadhar")
+
+    async def cmd_aadhar_fam(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await self.handle_lookup_command(update, context, "aadhar2fam")
+
+    async def cmd_ip(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await self.handle_lookup_command(update, context, "ip")
+
+    async def cmd_tguser(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await self.handle_lookup_command(update, context, "tguser")
+
+    async def cmd_callhistory(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await self.handle_lookup_command(update, context, "callhistory")
+
+    async def handle_lookup_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE, lookup_type: str):
+        user = update.effective_user
+        args = context.args or []
+        if not args:
+            await update.message.reply_text("Usage: /{cmd} <query>".format(cmd=lookup_type))
+            return
+        query = " ".join(args).strip()
+        # handle numbers with/without +91 etc.
+        await self.process_lookup_request(user.id, query, lookup_type, update)
+
+    # Central lookup processing with credits and checks
+    async def process_lookup_request(self, user_id: int, query: str, lookup_type: str, update_obj):
+        # ensure DB init
+        await init_db()
+        userrec = await get_user_record(user_id)
+        # check ban
+        if userrec.get("is_banned"):
+            await update_obj.message.reply_text("You are banned from using this bot.")
+            return
+        # check joins
+        not_member = []
+        for ch in REQUIRED_CHANNELS:
+            try:
+                chat_id = ch if ch.startswith("-100") or ch.startswith("@") else ("@" + ch)
+                mem = await self.app.bot.get_chat_member(chat_id, user_id)
+                if mem.status in ("left", "kicked"):
+                    not_member.append(ch)
+            except Exception:
+                not_member.append(ch)
+        if not_member:
+            await update_obj.message.reply_text(
+                "You must join required channels first:\nhttp://t.me/DataTraceUpdates\nhttp://t.me/DataTraceOSINTSupport")
+            return
+
+        # Determine cost
+        cost = COST_CALL_HISTORY if lookup_type == "callhistory" else COST_PER_SEARCH
+
+        # Protected / blacklist checks for number-based lookups
+        target_number = None
+        if lookup_type in ("num", "pak", "callhistory"):
+            # normalize number
+            target_number = re.sub(r"[^\d+]", "", query)
+            if not target_number.startswith("+"):
+                # try to normalize to +91 or leave as-is based on prefix
+                if target_number.startswith("91") or len(target_number) == 10:
+                    target_number = "+" + target_number if not target_number.startswith("+") else target_number
+            # check blacklist
+            if await is_blacklisted_number(target_number):
+                await update_obj.message.reply_text("No results found.")  # silently return per requirement
+                return
+            # check protected
+            if await is_protected_number(target_number):
+                if user_id != OWNER_ID:
+                    await update_obj.message.reply_text("No results found.")  # hide existence
+                    return
+
+        # Check credits or free searches
+        if userrec["credits"] < cost:
+            # If in private chat, they have free searches
+            if update_obj.effective_chat.type == "private" and userrec["free_searches"] > 0:
+                # allow, decrement free_searches
+                await set_user_field(user_id, "free_searches", userrec["free_searches"] - 1)
+                cost_to_deduct = 0
             else:
-                # Ask user to refer or buy credits
-                text = ("You have no credits left.\n"
-                        "Please refer friends to earn free credits or buy credits.\n\n"
-                        + credit_package_info_text() +
-                        "\n\nUse the buttons below.")
-                await message.reply(text, reply_markup=create_buy_credits_keyboard())
-                await state.finish()
+                # Not enough credits: force refer or buy
+                kb = InlineKeyboardMarkup(
+                    [
+                        [InlineKeyboardButton("Refer & Get 1 Credit", url=f"https://t.me/{(await self.app.bot.get_me()).username}?start={user_id}")],
+                        [InlineKeyboardButton("Buy Credits", callback_data="buy_credits_cb")]
+                    ]
+                )
+                await update_obj.message.reply_text(
+                    "You don't have enough credits.\nYou can get credits by referring friends or buying credits.",
+                    reply_markup=kb
+                )
+                return
+        else:
+            cost_to_deduct = cost
+
+        # Run the actual api lookup
+        result_text = None
+        async with aiohttp.ClientSession() as session:
+            try:
+                if lookup_type == "num":
+                    result_text = await api_num_lookup(session, query)
+                elif lookup_type == "pak":
+                    result_text = await api_pak_lookup(session, query)
+                elif lookup_type == "upi":
+                    result_text = await api_upi_lookup(session, query)
+                elif lookup_type == "aadhar":
+                    result_text = await api_aadhar_lookup(session, query)
+                elif lookup_type == "aadhar2fam":
+                    result_text = await api_aadhar_family(session, query)
+                elif lookup_type == "ip":
+                    result_text = await api_ip_lookup(session, query)
+                elif lookup_type == "tguser":
+                    result_text = await api_tguser_lookup(session, query)
+                elif lookup_type == "callhistory":
+                    result_text = await api_call_history(session, query)
+                else:
+                    result_text = format_error("Unknown lookup type.")
+            except Exception as e:
+                logger.exception("API lookup failed")
+                result_text = format_error(str(e))
+
+        # Deduct credits if applicable
+        if cost_to_deduct:
+            await update_user_credits(user_id, -cost_to_deduct, note=f"Lookup {lookup_type} {query}")
+        # record search log
+        await record_search(user_id, query, lookup_type, cost_to_deduct or 0)
+        # send result, with branding and contact
+        header = f"🔎 *Result — {lookup_type.upper()}*\n"
+        footer = f"\n\nContact Admin: @DataTraceSupport"
+        try:
+            await update_obj.message.reply_text(header + "\n" + result_text, parse_mode=ParseMode.MARKDOWN)
+        except Exception:
+            # fallback plain
+            await update_obj.message.reply_text(header + "\n" + (result_text if result_text else "No result"))
+
+        # Log to search channel
+        try:
+            await self.app.bot.send_message(LOG_SEARCH_CHANNEL,
+                                            f"Search by {user_id} — {lookup_type} — {query} — cost {cost_to_deduct or 0}")
+        except Exception:
+            pass
+
+    # Message handler for group behavior & direct lookups
+    async def message_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        msg = update.effective_message
+        user = update.effective_user
+        chat = update.effective_chat
+        text = msg.text or ""
+
+        # groups: respond only when mentioned, or command, or if bot username in entities, or number present and bot mentioned
+        if chat.type in ("group", "supergroup"):
+            bot_username = (await self.app.bot.get_me()).username
+            bot_mentioned = False
+            if msg.entities:
+                for ent in msg.entities:
+                    if ent.type == MessageEntity.MENTION:
+                        ent_text = msg.text[ent.offset: ent.offset + ent.length]
+                        if ent_text.lower().lstrip("@") == bot_username.lower():
+                            bot_mentioned = True
+            if not bot_mentioned:
+                # If it's a command, bot will get it via CommandHandler already. For safety return.
                 return
 
-    if lookup_type == "upi":
-        upi_id = message.text.strip()
-        if "@" not in upi_id:
-            await message.reply("❌ Invalid UPI ID format. Example: example@upi")
-            return
-        await process_upi_lookup(message, upi_id)
-    else:
-        text = message.text.strip()
-        # Check if text is number or command with argument
-        # If starts with / command, we ignore here - handled separately
-        if text.startswith("/"):
-            await message.reply("❌ Please send only the number or relevant data for lookup.")
+        # If contains phone-like pattern -> attempt number lookup
+        phone_match = PHONE_PATTERN.search(text)
+        if phone_match:
+            num = phone_match.group(0)
+            # decide pak or ind
+            # if starts with 92 or +92 -> pak else num
+            if num.startswith("+92") or num.startswith("92"):
+                await self.process_lookup_request(user.id, num, "pak", update)
+            else:
+                # treat as Indian
+                await self.process_lookup_request(user.id, num, "num", update)
             return
 
-        # Detect type by prefix
-        # +91 or no prefix = Indian number; +92 = Pakistan
-        # Also direct commands like /num, /pak etc will be handled separately
-        cleaned = clean_number(text)
-        if cleaned.startswith("+92"):
-            await process_pak_number_lookup(message, cleaned)
-        elif cleaned.startswith("+91") or re.match(r"^\d{10}$", cleaned):
-            await process_indian_number_lookup(message, cleaned)
-        elif re.match(r"^\d{7,15}$", cleaned):
-            # If number length between 7 and 15 assume Indian number without +91
-            await process_indian_number_lookup(message, cleaned)
+        # If text is a raw username/id with @ or digits and no command, maybe tguser lookup when private
+        if chat.type == "private" and text.startswith("@"):
+            await self.process_lookup_request(user.id, text.lstrip("@"), "tguser", update)
+            return
+
+    # CallbackQuery handler for inline buttons and admin actions
+    async def cb_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        await query.answer()
+        data = query.data
+        user = query.from_user
+
+        if data == "verify_join":
+            # Re-check membership
+            not_member = []
+            for ch in REQUIRED_CHANNELS:
+                try:
+                    chat_id = ch if ch.startswith("-100") or ch.startswith("@") else ("@" + ch)
+                    member = await self.app.bot.get_chat_member(chat_id, user.id)
+                    if member.status in ("left", "kicked"):
+                        not_member.append(ch)
+                except Exception:
+                    not_member.append(ch)
+            if not_member:
+                await query.edit_message_text("You still haven't joined all required channels.")
+            else:
+                await query.edit_message_text("Thank you! You can now use the bot.")
+        elif data == "show_commands":
+            # Show brief commands list
+            await query.edit_message_text("See /help for all commands.")
+        elif data.startswith("buy_"):
+            pack = data.split("_")[1]
+            mapping = {
+                "100": (100, 50),
+                "200": (200, 100),
+                "500": (500, 250),
+                "1000": (1000, 450)
+            }
+            if pack in mapping:
+                credits, price = mapping[pack]
+                # Create a pending purchase message to admins
+                await self.app.bot.send_message(
+                    LOG_SEARCH_CHANNEL,
+                    f"Purchase request by {user.id} @{user.username or ''}: {credits} credits for ₹{price}. Confirm with /admin panel."
+                )
+                await query.message.reply_text(
+                    f"Payment instructions:\nSend ₹{price} to UPI: example@upi\nAfter payment, press 'I Paid' (admin will confirm)."
+                )
+        elif data == "buy_credits_cb":
+            await query.edit_message_text("Use /buycredits to view packs and instructions.")
+        elif data == "admin_add_credits":
+            if user.id not in SUDO_IDS:
+                await query.edit_message_text("Unauthorized.")
+                return
+            await query.edit_message_text("To add credits, reply to this message with: add <user_id> <amount>")
+        elif data == "admin_ban_user":
+            if user.id not in SUDO_IDS:
+                await query.edit_message_text("Unauthorized.")
+                return
+            await query.edit_message_text("Reply with: ban <user_id>")
+        elif data == "admin_unban_user":
+            if user.id not in SUDO_IDS:
+                await query.edit_message_text("Unauthorized.")
+                return
+            await query.edit_message_text("Reply with: unban <user_id>")
+        elif data == "admin_add_prot":
+            if user.id not in SUDO_IDS:
+                await query.edit_message_text("Unauthorized.")
+                return
+            await query.edit_message_text("Reply with: addprot <number>")
+        elif data == "admin_add_black":
+            if user.id not in SUDO_IDS:
+                await query.edit_message_text("Unauthorized.")
+                return
+            await query.edit_message_text("Reply with: addblack <number>")
         else:
-            await message.reply("❌ Invalid input. Please send a valid number or UPI ID.")
-            return
+            await query.edit_message_text("Unknown action.")
 
-    # Deduct credit if user is not sudo
-    if user_id not in SUDO_USERS:
-        deduct_credits(user_id, 1)
+    async def run(self):
+        logger.info("Starting bot...")
+        await init_db()
+        await self.app.initialize()
+        await self.app.start()
+        await self.app.updater.start_polling()
+        logger.info("Bot started. Press Ctrl+C to stop.")
+        await self.app.updater.idle()
+        await self.session.close()
 
-    # Log the search
-    await bot.send_message(
-        CHANNEL_SEARCH_LOG,
-        f"User <a href='tg://user?id={user_id}'>{message.from_user.full_name}</a> searched: {message.text}"
-    )
-    await state.finish()
 
-# ----------------------------
-# COMMANDS WITH ARGUMENTS FOR LOOKUPS
-# ----------------------------
-
-@dp.message_handler(commands=['num'])
-async def cmd_num_lookup(message: types.Message):
-    user_id = message.from_user.id
-    if get_user_data(user_id).get("banned", False):
-        await message.reply("🚫 You are banned from using this bot.")
+# ---------------------------------------------------------------------
+# Entrypoint & basic admin text reply handling
+# ---------------------------------------------------------------------
+async def admin_text_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # This handler listens for admin replies to perform add/ban actions
+    user = update.effective_user
+    text = update.effective_message.text or ""
+    if user.id not in SUDO_IDS:
         return
-    args = message.get_args()
-    if not args:
-        await message.reply("Usage: /num <number>")
+    # commands: add <user_id> <amount>
+    m = re.match(r"add\s+(\d+)\s+(\d+)", text, re.I)
+    if m:
+        uid = int(m.group(1)); amt = int(m.group(2))
+        await update.message.reply_text(f"Adding {amt} credits to {uid}...")
+        await update_user_credits(uid, amt, note=f"Admin manual add by {user.id}")
+        await update.message.reply_text("Done.")
         return
-    number = clean_number(args)
-    await process_indian_number_lookup(message, number)
-
-@dp.message_handler(commands=['pak'])
-async def cmd_pak_lookup(message: types.Message):
-    user_id = message.from_user.id
-    if get_user_data(user_id).get("banned", False):
-        await message.reply("🚫 You are banned from using this bot.")
+    m = re.match(r"ban\s+(\d+)", text, re.I)
+    if m:
+        uid = int(m.group(1))
+        await set_user_field(uid, "is_banned", 1)
+        await update.message.reply_text(f"Banned {uid}.")
         return
-    args = message.get_args()
-    if not args:
-        await message.reply("Usage: /pak <number>")
+    m = re.match(r"unban\s+(\d+)", text, re.I)
+    if m:
+        uid = int(m.group(1))
+        await set_user_field(uid, "is_banned", 0)
+        await update.message.reply_text(f"Unbanned {uid}.")
         return
-    number = clean_number(args)
-    await process_pak_number_lookup(message, number)
-
-@dp.message_handler(commands=['aadhar'])
-async def cmd_aadhar_lookup(message: types.Message):
-    user_id = message.from_user.id
-    if get_user_data(user_id).get("banned", False):
-        await message.reply("🚫 You are banned from using this bot.")
+    m = re.match(r"addprot\s+(\+?\d+)", text, re.I)
+    if m:
+        num = m.group(1)
+        await add_protected_number(num, user.id)
+        await update.message.reply_text(f"Added protected number {num}.")
         return
-    args = message.get_args()
-    if not args:
-        await message.reply("Usage: /aadhar <aadhaar_number>")
-        return
-    aadhaar = args.strip()
-    await process_aadhar_lookup(message, aadhaar)
-
-@dp.message_handler(commands=['aadhar2fam'])
-async def cmd_aadhar_family_lookup(message: types.Message):
-    user_id = message.from_user.id
-    if get_user_data(user_id).get("banned", False):
-        await message.reply("🚫 You are banned from using this bot.")
-        return
-    args = message.get_args()
-    if not args:
-        await message.reply("Usage: /aadhar2fam <aadhaar_number>")
-        return
-    aadhaar = args.strip()
-    await process_aadhar_family_lookup(message, aadhaar)
-
-@dp.message_handler(commands=['upi'])
-async def cmd_upi_lookup(message: types.Message):
-    user_id = message.from_user.id
-    if get_user_data(user_id).get("banned", False):
-        await message.reply("🚫 You are banned from using this bot.")
-        return
-    args = message.get_args()
-    if not args:
-        await message.reply("Usage: /upi <upi_id>")
-        return
-    upi_id = args.strip()
-    await process_upi_lookup(message, upi_id)
-
-@dp.message_handler(commands=['ip'])
-async def cmd_ip_lookup(message: types.Message):
-    user_id = message.from_user.id
-    if get_user_data(user_id).get("banned", False):
-        await message.reply("🚫 You are banned from using this bot.")
-        return
-    args = message.get_args()
-    if not args:
-        await message.reply("Usage: /ip <ip_address>")
-        return
-    ip = args.strip()
-    await process_ip_lookup(message, ip)
-
-@dp.message_handler(commands=['tguser'])
-async def cmd_tguser_lookup(message: types.Message):
-    user_id = message.from_user.id
-    if get_user_data(user_id).get("banned", False):
-        await message.reply("🚫 You are banned from using this bot.")
-        return
-    args = message.get_args()
-    if not args or not args.isdigit():
-        await message.reply("Usage: /tguser <telegram_user_id>")
-        return
-    tg_user_id = args.strip()
-    await process_tguser_lookup(message, tg_user_id)
-
-# ----------------------------
-# LOOKUP PROCESSING FUNCTIONS
-# ----------------------------
-
-async def process_upi_lookup(message: Message, upi_id: str):
-    url = API_URLS['upi'].format(upi_id=upi_id)
-    async with aiohttp.ClientSession() as session:
-        data = await fetch_api_json(session, url)
-    if not data or 'bank_details_raw' not in data or 'vpa_details' not in data:
-        await message.reply("❌ No data found for this UPI ID.")
+    m = re.match(r"addblack\s+(\+?\d+)", text, re.I)
+    if m:
+        num = m.group(1)
+        await add_blacklist_number(num, user.id)
+        await update.message.reply_text(f"Added blacklist number {num}.")
         return
 
-    bank = data['bank_details_raw']
-    vpa = data['vpa_details']
+def main():
+    bot = DataTraceBot(BOT_TOKEN)
+    # register admin_text_listener to application (low priority)
+    bot.app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), admin_text_listener))
+    # run
+    asyncio.run(bot.run())
 
-    text = (
-        "🏦 <b>UPI ID Information</b>\n\n"
-        f"<b>Bank Details:</b>\n"
-        f"ADDRESS: {bank.get('ADDRESS', 'N/A')}\n"
-        f"BANK: {bank.get('BANK', 'N/A')}\n"
-        f"BANKCODE: {bank.get('BANKCODE', 'N/A')}\n"
-        f"BRANCH: {bank.get('BRANCH', 'N/A')}\n"
-        f"CENTRE: {bank.get('CENTRE', 'N/A')}\n"
-        f"CITY: {bank.get('CITY', 'N/A')}\n"
-        f"DISTRICT: {bank.get('DISTRICT', 'N/A')}\n"
-        f"STATE: {bank.get('STATE', 'N/A')}\n"
-        f"IFSC: {bank.get('IFSC', 'N/A')}\n"
-        f"MICR: {bank.get('MICR', 'N/A')}\n"
-        f"IMPS: {'✅' if bank.get('IMPS') else '❌'}\n"
-        f"NEFT: {'✅' if bank.get('NEFT') else '❌'}\n"
-        f"RTGS: {'✅' if bank.get('RTGS') else '❌'}\n"
-        f"UPI: {'✅' if bank.get('UPI') else '❌'}\n"
-        f"SWIFT: {bank.get('SWIFT', 'N/A')}\n\n"
-        f"👤 <b>Account Holder:</b>\n"
-        f"IFSC: {vpa.get('ifsc', 'N/A')}\n"
-        f"NAME: {vpa.get('name', 'N/A')}\n"
-        f"VPA: {vpa.get('vpa', 'N/A')}\n\n"
-        + format_footer()
-    )
-    await message.reply(text, reply_markup=create_back_contact_keyboard())
-
-async def process_indian_number_lookup(message: Message, number: str):
-    if is_number_blacklisted(number):
-        await message.reply("🚫 This number is blacklisted and cannot be searched.")
-        return
-    url = API_URLS['num_to_info'].format(number=number)
-    async with aiohttp.ClientSession() as session:
-        data = await fetch_api_json(session, url)
-    if not data or 'data' not in data or not data['data']:
-        await message.reply("❌ No information found for this number.")
-        return
-    info = data['data'][0]
-    alt_mobile = info.get('alt', 'N/A')
-    text = (
-        "📱 <b>Indian Number Info</b>\n\n"
-        f"MOBILE: {info.get('mobile', 'N/A')}\n"
-        f"ALT MOBILE: {alt_mobile}\n"
-        f"NAME: {info.get('name', 'N/A')}\n"
-        f"FULL NAME: {info.get('fname', 'N/A')}\n"
-        f"ADDRESS: {info.get('address', 'N/A').replace('!', ', ')}\n"
-        f"CIRCLE: {info.get('circle', 'N/A')}\n"
-        f"ID: {info.get('id', 'N/A')}\n\n"
-        + format_footer()
-    )
-    await message.reply(text, reply_markup=create_back_contact_keyboard())
-
-async def process_ip_lookup(message: Message, ip: str):
-    url = API_URLS['ip_to_info'].format(ip=ip)
-    async with aiohttp.ClientSession() as session:
-        data = await fetch_api_json(session, url)
-    if not data or 'Country' not in data:
-        await message.reply("❌ No information found for this IP.")
-        return
-    text = (
-        "🗾 <b>IP Address Info</b>\n\n"
-        f"IP Valid: {'✅' if data.get('Country') else '❌'}\n"
-        f"Country: {data.get('Country', 'N/A')}\n"
-        f"Country Code: {data.get('CountryCode', 'N/A')}\n"
-        f"Region: {data.get('Region', 'N/A')}\n"
-        f"Region Name: {data.get('RegionName', 'N/A')}\n"
-        f"City: {data.get('City', 'N/A')}\n"
-        f"Zip: {data.get('Zip', 'N/A')}\n"
-        f"Latitude: {data.get('Lat', 'N/A')}\n"
-        f"Longitude: {data.get('Lon', 'N/A')}\n"
-        f"Timezone: {data.get('Timezone', 'N/A')}\n"
-        f"ISP: {data.get('ISP', 'N/A')}\n"
-        f"Organization: {data.get('Org', 'N/A')}\n"
-        f"AS: {data.get('AS', 'N/A')}\n\n"
-        + format_footer()
-    )
-    await message.reply(text, reply_markup=create_back_contact_keyboard())
-
-async def process_pak_number_lookup(message: Message, number: str):
-    url = API_URLS['pak_num_to_cnic'].format(number=number)
-    async with aiohttp.ClientSession() as session:
-        data = await fetch_api_json(session, url)
-    if not data or 'results' not in data or not data['results']:
-        await message.reply("❌ No information found for this Pakistan number.")
-        return
-    results = data['results']
-    text = "🇵🇰 <b>Pakistan Number Info</b>\n\n"
-    for idx, res in enumerate(results, 1):
-        addr = res.get("Address", "(Not Available)")
-        text += (f"{idx}️⃣\n"
-                 f"NAME: {res.get('Name', 'N/A')}\n"
-                 f"CNIC: {res.get('CNIC', 'N/A')}\n"
-                 f"MOBILE: {res.get('Mobile', 'N/A')}\n"
-                 f"ADDRESS: {addr}\n\n")
-    text += format_footer()
-    await message.reply(text, reply_markup=create_back_contact_keyboard())
-
-async def process_aadhar_lookup(message: Message, aadhaar: str):
-    url = API_URLS['aadhar_to_details'].format(aadhaar=aadhaar)
-    async with aiohttp.ClientSession() as session:
-        data = await fetch_api_json(session, url)
-    if not data or 'data' not in data or not data['data']:
-        await message.reply("❌ No information found for this Aadhar number.")
-        return
-    info = data['data'][0]
-    alt_mobile = info.get('alt_mobile', 'N/A')
-    text = (
-        "🆔 <b>Aadhar Number Info</b>\n\n"
-        f"MOBILE: {info.get('mobile', 'N/A')}\n"
-        f"NAME: {info.get('name', 'N/A')}\n"
-        f"FATHER'S NAME: {info.get('father_name', 'N/A')}\n"
-        f"ADDRESS: {info.get('address', 'N/A').replace('!', ', ')}\n"
-        f"ALT MOBILE: {alt_mobile}\n"
-        f"CIRCLE: {info.get('circle', 'N/A')}\n"
-        f"ID NUMBER: {info.get('id_number', 'N/A')}\n"
-        f"EMAIL: {info.get('email', 'N/A')}\n\n"
-        + format_footer()
-    )
-    await message.reply(text, reply_markup=create_back_contact_keyboard())
-
-async def process_aadhar_family_lookup(message: Message, aadhaar: str):
-    url = API_URLS['aadhar_to_family'].format(aadhaar=aadhaar)
-    async with aiohttp.ClientSession() as session:
-        data = await fetch_api_json(session, url)
-    if not data or 'memberDetailsList' not in data:
-        await message.reply("❌ No family information found for this Aadhar number.")
-        return
-    fam = data
-    members = fam.get("memberDetailsList", [])
-    text = (
-        "🆔 <b>Aadhar Family Info</b>\n\n"
-        f"RC ID: {fam.get('rcId', 'N/A')}\n"
-        f"SCHEME: {fam.get('schemeName', 'N/A')} ({fam.get('schemeId', 'N/A')})\n"
-        f"DISTRICT: {fam.get('homeDistName', 'N/A')}\n"
-        f"STATE: {fam.get('homeStateName', 'N/A')}\n"
-        f"FPS ID: {fam.get('fpsId', 'N/A')}\n\n"
-        f"👨‍👩‍👧 <b>Family Members:</b>\n"
-    )
-    for idx, mem in enumerate(members, 1):
-        text += f"{idx}️⃣ {mem.get('memberName', 'N/A')} — {mem.get('releationship_name', 'N/A')}\n"
-    text += "\n" + format_footer()
-    await message.reply(text, reply_markup=create_back_contact_keyboard())
-
-async def process_tguser_lookup(message: Message, tg_user_id: str):
-    url = API_URLS['tg_user_stats'].format(user=tg_user_id)
-    async with aiohttp.ClientSession() as session:
-        data = await fetch_api_json(session, url)
-    if not data or not data.get("success") or not data.get("data"):
-        await message.reply("❌ No Telegram user stats found for this user ID.")
-        return
-    d = data["data"]
-    last_msg_date = d.get("last_msg_date")
-    first_msg_date = d.get("first_msg_date")
-    last_msg_date_str = last_msg_date.replace("T", " ").replace("Z", "") if last_msg_date else "N/A"
-    first_msg_date_str = first_msg_date.replace("T", " ").replace("Z", "") if first_msg_date else "N/A"
-    text = (
-        "👤 <b>Telegram User Stats</b>\n\n"
-        f"NAME: {d.get('first_name', '')} {d.get('last_name', '')}\n"
-        f"USER ID: {d.get('id', 'N/A')}\n"
-        f"IS BOT: {'✅' if d.get('is_bot') else '❌'}\n"
-        f"ACTIVE: {'✅' if d.get('is_active') else '❌'}\n\n"
-        f"📊 <b>Stats</b>\n"
-        f"TOTAL GROUPS: {d.get('total_groups', 0)}\n"
-        f"ADMIN IN GROUPS: {d.get('adm_in_groups', 0)}\n"
-        f"TOTAL MESSAGES: {d.get('total_msg_count', 0)}\n"
-        f"MESSAGES IN GROUPS: {d.get('msg_in_groups_count', 0)}\n"
-        f"🕐 FIRST MSG DATE: {first_msg_date_str}\n"
-        f"🕐 LAST MSG DATE: {last_msg_date_str}\n"
-        f"NAME CHANGES: {d.get('names_count', 0)}\n"
-        f"USERNAME CHANGES: {d.get('usernames_count', 0)}\n\n"
-        + format_footer()
-    )
-    await message.reply(text, reply_markup=create_back_contact_keyboard())
-
-# ----------------------------
-# MISC HANDLERS
-# ----------------------------
-
-@dp.message_handler(content_types=types.ContentTypes.TEXT)
-async def text_handler(message: types.Message):
-    user_id = message.from_user.id
-    # Only respond in groups if mentioned, command, or number in message
-    if message.chat.type in [ChatType.GROUP, ChatType.SUPERGROUP]:
-        bot_username = (await bot.get_me()).username.lower()
-        mentioned = f"@{bot_username}" in (message.text or "").lower()
-        is_cmd = bool(message.entities and message.entities[0].type == "bot_command")
-        has_number = bool(re.search(r"\+?\d{7,15}", message.text or ""))
-        if not (mentioned or is_cmd or has_number):
-            return  # Do not respond to normal messages in groups
-
-    # Attempt lookup by number or UPI ID
-    text = message.text.strip()
-
-    # First check if blacklisted number
-    cleaned = clean_number(text)
-    if is_number_blacklisted(cleaned):
-        await message.reply("🚫 This number is blacklisted and cannot be searched.")
-        return
-
-    # Determine lookup type by input pattern
-    if "@" in text and not text.startswith("/"):
-        # Possibly UPI ID
-        await process_upi_lookup(message, text)
-        return
-    elif re.match(r"^\+?(\d{7,15})$", text):
-        # Number lookup
-        if cleaned.startswith("+92"):
-            await process_pak_number_lookup(message, cleaned)
-        else:
-            await process_indian_number_lookup(message, cleaned)
-        return
-    else:
-        # Unknown input, ignore or suggest help
-        await message.reply("❓ Unknown input. Use /help to see commands and usage.")
-
-# ----------------------------
-# RUN BOT
-# ----------------------------
-
-if __name__ == '__main__':
-    print("Starting DataTrace OSINT Bot...")
-    executor.start_polling(dp, skip_updates=True)
+if __name__ == "__main__":
+    main()
