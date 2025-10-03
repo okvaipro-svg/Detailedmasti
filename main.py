@@ -187,7 +187,7 @@ async def is_user_member(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> bo
 
         except Exception as e:
             # Log the failure â€” do not crash. Returning False will prompt user to join.
-            logger.warning(f"Error checking membership for channel {channel.get('username') or chat_identifier'}: {e}")
+            logger.warning(f"Error checking membership for channel {channel.get('username') or chat_identifier}: {e}")
             return False
 
     # Passed all channel checks
