@@ -146,11 +146,11 @@ def init_db():
 def generate_referral_code(length=8):
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
 
-def is_user_member(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> bool:
+async def is_user_member(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> bool:
     bot = context.bot
     for channel in REQUIRED_CHANNELS:
         try:
-            member = bot.get_chat_member(channel["id"], user_id)
+            member = await bot.get_chat_member(channel["id"], user_id)
             if member.status in ["left", "kicked"]:
                 return False
         except Exception as e:
@@ -158,16 +158,23 @@ def is_user_member(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> bool:
             return False
     return True
 
-def check_membership(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    user_id = update.effective_user.id
-    if not is_user_member(context, user_id):
+async def check_membership(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    # Skip membership check for channel posts
+    if update.channel_post:
+        return True
+        
+    user_id = update.effective_user.id if update.effective_user else None
+    if not user_id:
+        return False
+        
+    if not await is_user_member(context, user_id):
         keyboard = []
         for channel in REQUIRED_CHANNELS:
             keyboard.append([InlineKeyboardButton(f"Join {channel['username']}", url=f"https://t.me/{channel['username']}")])
         keyboard.append([InlineKeyboardButton("✅ I've joined all channels", callback_data="check_membership")])
         
         reply_markup = InlineKeyboardMarkup(keyboard)
-        update.message.reply_text(
+        await update.message.reply_text(
             "🚫 *You must join all required channels to use this bot*\n\n"
             "Please join the channels below and then click the button:",
             reply_markup=reply_markup,
@@ -209,9 +216,9 @@ def log_search(user_id: int, search_type: str, query: str, result_count: int):
     conn.commit()
     conn.close()
 
-def log_to_channel(context: ContextTypes.DEFAULT_TYPE, channel_id: int, message: str):
+async def log_to_channel(context: ContextTypes.DEFAULT_TYPE, channel_id: int, message: str):
     try:
-        context.bot.send_message(chat_id=channel_id, text=message, parse_mode="Markdown")
+        await context.bot.send_message(chat_id=channel_id, text=message, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Failed to log to channel {channel_id}: {e}")
 
@@ -234,7 +241,14 @@ def is_owner(user_id: int) -> bool:
 
 # Command handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Skip for channel posts
+    if update.channel_post:
+        return
+        
     user = update.effective_user
+    if not user:
+        return
+        
     user_id = user.id
     
     # Log to start channel
@@ -243,7 +257,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     log_message += f"🔖 Username: @{user.username if user.username else 'N/A'}\n"
     log_message += f"🆔 User ID: {user_id}\n"
     log_message += f"📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-    log_to_channel(context, START_LOG_CHANNEL, log_message)
+    await log_to_channel(context, START_LOG_CHANNEL, log_message)
     
     # Check if user is in database
     conn = sqlite3.connect('datatrace.db')
@@ -293,7 +307,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.close()
     
     # Check if user is member of required channels
-    if not check_membership(update, context):
+    if not await check_membership(update, context):
         return
     
     # Get user credits
@@ -331,10 +345,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    # Skip for channel posts
+    if update.channel_post:
+        return
+        
+    user = update.effective_user
+    if not user:
+        return
+        
+    user_id = user.id
     
     # Check if user is member of required channels
-    if not check_membership(update, context):
+    if not await check_membership(update, context):
         return
     
     help_text = "📖 *DataTrace OSINT Bot Help*\n\n"
@@ -378,10 +400,18 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(help_text, parse_mode="Markdown")
 
 async def credits_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    # Skip for channel posts
+    if update.channel_post:
+        return
+        
+    user = update.effective_user
+    if not user:
+        return
+        
+    user_id = user.id
     
     # Check if user is member of required channels
-    if not check_membership(update, context):
+    if not await check_membership(update, context):
         return
     
     credits = get_user_credits(user_id)
@@ -423,10 +453,18 @@ async def credits_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def refer_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    # Skip for channel posts
+    if update.channel_post:
+        return
+        
+    user = update.effective_user
+    if not user:
+        return
+        
+    user_id = user.id
     
     # Check if user is member of required channels
-    if not check_membership(update, context):
+    if not await check_membership(update, context):
         return
     
     # Get referral code
@@ -461,10 +499,18 @@ async def refer_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    # Skip for channel posts
+    if update.channel_post:
+        return
+        
+    user = update.effective_user
+    if not user:
+        return
+        
+    user_id = user.id
     
     # Check if user is member of required channels
-    if not check_membership(update, context):
+    if not await check_membership(update, context):
         return
     
     keyboard = []
@@ -497,10 +543,18 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # API handlers
 async def upi_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    # Skip for channel posts
+    if update.channel_post:
+        return
+        
+    user = update.effective_user
+    if not user:
+        return
+        
+    user_id = user.id
     
     # Check if user is member of required channels
-    if not check_membership(update, context):
+    if not await check_membership(update, context):
         return
     
     # Check if user has credits
@@ -575,7 +629,7 @@ async def upi_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             log_message += f"👤 User: {update.effective_user.first_name} ({user_id})\n"
             log_message += f"🔍 Query: {upi_id}\n"
             log_message += f"📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-            log_to_channel(context, SEARCH_LOG_CHANNEL, log_message)
+            await log_to_channel(context, SEARCH_LOG_CHANNEL, log_message)
             
             await update.message.reply_text(result_text, parse_mode="Markdown")
         else:
@@ -585,10 +639,18 @@ async def upi_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ An error occurred while fetching UPI information. Please try again later.", parse_mode="Markdown")
 
 async def num_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    # Skip for channel posts
+    if update.channel_post:
+        return
+        
+    user = update.effective_user
+    if not user:
+        return
+        
+    user_id = user.id
     
     # Check if user is member of required channels
-    if not check_membership(update, context):
+    if not await check_membership(update, context):
         return
     
     # Check if user has credits
@@ -668,7 +730,7 @@ async def num_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             log_message += f"👤 User: {update.effective_user.first_name} ({user_id})\n"
             log_message += f"🔍 Query: {number}\n"
             log_message += f"📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-            log_to_channel(context, SEARCH_LOG_CHANNEL, log_message)
+            await log_to_channel(context, SEARCH_LOG_CHANNEL, log_message)
             
             await update.message.reply_text(result_text, parse_mode="Markdown")
         else:
@@ -678,10 +740,18 @@ async def num_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ An error occurred while fetching number information. Please try again later.", parse_mode="Markdown")
 
 async def tg_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    # Skip for channel posts
+    if update.channel_post:
+        return
+        
+    user = update.effective_user
+    if not user:
+        return
+        
+    user_id = user.id
     
     # Check if user is member of required channels
-    if not check_membership(update, context):
+    if not await check_membership(update, context):
         return
     
     # Check if user has credits
@@ -756,7 +826,7 @@ async def tg_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             log_message += f"👤 User: {update.effective_user.first_name} ({user_id})\n"
             log_message += f"🔍 Query: {tg_user_id}\n"
             log_message += f"📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-            log_to_channel(context, SEARCH_LOG_CHANNEL, log_message)
+            await log_to_channel(context, SEARCH_LOG_CHANNEL, log_message)
             
             await update.message.reply_text(result_text, parse_mode="Markdown")
         else:
@@ -766,10 +836,18 @@ async def tg_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ An error occurred while fetching Telegram user information. Please try again later.", parse_mode="Markdown")
 
 async def ip_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    # Skip for channel posts
+    if update.channel_post:
+        return
+        
+    user = update.effective_user
+    if not user:
+        return
+        
+    user_id = user.id
     
     # Check if user is member of required channels
-    if not check_membership(update, context):
+    if not await check_membership(update, context):
         return
     
     # Check if user has credits
@@ -824,7 +902,7 @@ async def ip_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             log_message += f"👤 User: {update.effective_user.first_name} ({user_id})\n"
             log_message += f"🔍 Query: {ip}\n"
             log_message += f"📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-            log_to_channel(context, SEARCH_LOG_CHANNEL, log_message)
+            await log_to_channel(context, SEARCH_LOG_CHANNEL, log_message)
             
             await update.message.reply_text(result_text, parse_mode="Markdown")
         else:
@@ -834,10 +912,18 @@ async def ip_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ An error occurred while fetching IP information. Please try again later.", parse_mode="Markdown")
 
 async def pak_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    # Skip for channel posts
+    if update.channel_post:
+        return
+        
+    user = update.effective_user
+    if not user:
+        return
+        
+    user_id = user.id
     
     # Check if user is member of required channels
-    if not check_membership(update, context):
+    if not await check_membership(update, context):
         return
     
     # Check if user has credits
@@ -904,7 +990,7 @@ async def pak_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             log_message += f"👤 User: {update.effective_user.first_name} ({user_id})\n"
             log_message += f"🔍 Query: {number}\n"
             log_message += f"📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-            log_to_channel(context, SEARCH_LOG_CHANNEL, log_message)
+            await log_to_channel(context, SEARCH_LOG_CHANNEL, log_message)
             
             await update.message.reply_text(result_text, parse_mode="Markdown")
         else:
@@ -914,10 +1000,18 @@ async def pak_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ An error occurred while fetching Pakistan number information. Please try again later.", parse_mode="Markdown")
 
 async def aadhar_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    # Skip for channel posts
+    if update.channel_post:
+        return
+        
+    user = update.effective_user
+    if not user:
+        return
+        
+    user_id = user.id
     
     # Check if user is member of required channels
-    if not check_membership(update, context):
+    if not await check_membership(update, context):
         return
     
     # Check if user has credits
@@ -984,7 +1078,7 @@ async def aadhar_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             log_message += f"👤 User: {update.effective_user.first_name} ({user_id})\n"
             log_message += f"🔍 Query: {aadhar}\n"
             log_message += f"📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-            log_to_channel(context, SEARCH_LOG_CHANNEL, log_message)
+            await log_to_channel(context, SEARCH_LOG_CHANNEL, log_message)
             
             await update.message.reply_text(result_text, parse_mode="Markdown")
         else:
@@ -994,10 +1088,18 @@ async def aadhar_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ An error occurred while fetching Aadhar information. Please try again later.", parse_mode="Markdown")
 
 async def family_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    # Skip for channel posts
+    if update.channel_post:
+        return
+        
+    user = update.effective_user
+    if not user:
+        return
+        
+    user_id = user.id
     
     # Check if user is member of required channels
-    if not check_membership(update, context):
+    if not await check_membership(update, context):
         return
     
     # Check if user has credits
@@ -1063,7 +1165,7 @@ async def family_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             log_message += f"👤 User: {update.effective_user.first_name} ({user_id})\n"
             log_message += f"🔍 Query: {aadhar}\n"
             log_message += f"📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-            log_to_channel(context, SEARCH_LOG_CHANNEL, log_message)
+            await log_to_channel(context, SEARCH_LOG_CHANNEL, log_message)
             
             await update.message.reply_text(result_text, parse_mode="Markdown")
         else:
@@ -1073,10 +1175,18 @@ async def family_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ An error occurred while fetching Aadhar family information. Please try again later.", parse_mode="Markdown")
 
 async def call_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    # Skip for channel posts
+    if update.channel_post:
+        return
+        
+    user = update.effective_user
+    if not user:
+        return
+        
+    user_id = user.id
     
     # Check if user is member of required channels
-    if not check_membership(update, context):
+    if not await check_membership(update, context):
         return
     
     # Check if user has credits
@@ -1152,7 +1262,7 @@ async def call_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             log_message += f"👤 User: {update.effective_user.first_name} ({user_id})\n"
             log_message += f"🔍 Query: {number}\n"
             log_message += f"📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-            log_to_channel(context, SEARCH_LOG_CHANNEL, log_message)
+            await log_to_channel(context, SEARCH_LOG_CHANNEL, log_message)
             
             await update.message.reply_text(result_text, parse_mode="Markdown")
         else:
@@ -1163,7 +1273,15 @@ async def call_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Admin commands
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    # Skip for channel posts
+    if update.channel_post:
+        return
+        
+    user = update.effective_user
+    if not user:
+        return
+        
+    user_id = user.id
     
     if not is_sudo(user_id):
         await update.message.reply_text("❌ You don't have permission to use this command.", parse_mode="Markdown")
@@ -1188,7 +1306,15 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def addcredits_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    # Skip for channel posts
+    if update.channel_post:
+        return
+        
+    user = update.effective_user
+    if not user:
+        return
+        
+    user_id = user.id
     
     if not is_sudo(user_id):
         await update.message.reply_text("❌ You don't have permission to use this command.", parse_mode="Markdown")
@@ -1207,14 +1333,14 @@ async def addcredits_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         # Get user info
         try:
-            user = await context.bot.get_chat(target_user_id)
-            user_info = f"{user.first_name} (@{user.username if user.username else 'N/A'})"
+            user_info = await context.bot.get_chat(target_user_id)
+            user_info_text = f"{user_info.first_name} (@{user_info.username if user_info.username else 'N/A'})"
         except:
-            user_info = f"User ID: {target_user_id}"
+            user_info_text = f"User ID: {target_user_id}"
         
         await update.message.reply_text(
             f"✅ *Credits Added*\n\n"
-            f"User: {user_info}\n"
+            f"User: {user_info_text}\n"
             f"Amount: {amount} credits",
             parse_mode="Markdown"
         )
@@ -1225,7 +1351,15 @@ async def addcredits_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("❌ An error occurred while adding credits.", parse_mode="Markdown")
 
 async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    # Skip for channel posts
+    if update.channel_post:
+        return
+        
+    user = update.effective_user
+    if not user:
+        return
+        
+    user_id = user.id
     
     if not is_sudo(user_id):
         await update.message.reply_text("❌ You don't have permission to use this command.", parse_mode="Markdown")
@@ -1247,14 +1381,14 @@ async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Get user info
         try:
-            user = await context.bot.get_chat(target_user_id)
-            user_info = f"{user.first_name} (@{user.username if user.username else 'N/A'})"
+            user_info = await context.bot.get_chat(target_user_id)
+            user_info_text = f"{user_info.first_name} (@{user_info.username if user_info.username else 'N/A'})"
         except:
-            user_info = f"User ID: {target_user_id}"
+            user_info_text = f"User ID: {target_user_id}"
         
         await update.message.reply_text(
             f"✅ *User Banned*\n\n"
-            f"User: {user_info}",
+            f"User: {user_info_text}",
             parse_mode="Markdown"
         )
     except ValueError:
@@ -1264,7 +1398,15 @@ async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ An error occurred while banning the user.", parse_mode="Markdown")
 
 async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    # Skip for channel posts
+    if update.channel_post:
+        return
+        
+    user = update.effective_user
+    if not user:
+        return
+        
+    user_id = user.id
     
     if not is_sudo(user_id):
         await update.message.reply_text("❌ You don't have permission to use this command.", parse_mode="Markdown")
@@ -1286,14 +1428,14 @@ async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Get user info
         try:
-            user = await context.bot.get_chat(target_user_id)
-            user_info = f"{user.first_name} (@{user.username if user.username else 'N/A'})"
+            user_info = await context.bot.get_chat(target_user_id)
+            user_info_text = f"{user_info.first_name} (@{user_info.username if user_info.username else 'N/A'})"
         except:
-            user_info = f"User ID: {target_user_id}"
+            user_info_text = f"User ID: {target_user_id}"
         
         await update.message.reply_text(
             f"✅ *User Unbanned*\n\n"
-            f"User: {user_info}",
+            f"User: {user_info_text}",
             parse_mode="Markdown"
         )
     except ValueError:
@@ -1303,7 +1445,15 @@ async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ An error occurred while unbanning the user.", parse_mode="Markdown")
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    # Skip for channel posts
+    if update.channel_post:
+        return
+        
+    user = update.effective_user
+    if not user:
+        return
+        
+    user_id = user.id
     
     if not is_sudo(user_id):
         await update.message.reply_text("❌ You don't have permission to use this command.", parse_mode="Markdown")
@@ -1363,7 +1513,15 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ An error occurred while fetching statistics.", parse_mode="Markdown")
 
 async def gcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    # Skip for channel posts
+    if update.channel_post:
+        return
+        
+    user = update.effective_user
+    if not user:
+        return
+        
+    user_id = user.id
     
     if not is_sudo(user_id):
         await update.message.reply_text("❌ You don't have permission to use this command.", parse_mode="Markdown")
@@ -1403,7 +1561,15 @@ async def gcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ An error occurred while broadcasting the message.", parse_mode="Markdown")
 
 async def protect_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    # Skip for channel posts
+    if update.channel_post:
+        return
+        
+    user = update.effective_user
+    if not user:
+        return
+        
+    user_id = user.id
     
     if not is_owner(user_id):
         await update.message.reply_text("❌ Only the owner can use this command.", parse_mode="Markdown")
@@ -1433,7 +1599,15 @@ async def protect_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ An error occurred while protecting the number.", parse_mode="Markdown")
 
 async def unprotect_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    # Skip for channel posts
+    if update.channel_post:
+        return
+        
+    user = update.effective_user
+    if not user:
+        return
+        
+    user_id = user.id
     
     if not is_owner(user_id):
         await update.message.reply_text("❌ Only the owner can use this command.", parse_mode="Markdown")
@@ -1462,7 +1636,15 @@ async def unprotect_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ An error occurred while unprotecting the number.", parse_mode="Markdown")
 
 async def blacklist_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    # Skip for channel posts
+    if update.channel_post:
+        return
+        
+    user = update.effective_user
+    if not user:
+        return
+        
+    user_id = user.id
     
     if not is_sudo(user_id):
         await update.message.reply_text("❌ You don't have permission to use this command.", parse_mode="Markdown")
@@ -1485,7 +1667,15 @@ async def blacklist_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ This number is already blacklisted.", parse_mode="Markdown")
 
 async def unblacklist_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    # Skip for channel posts
+    if update.channel_post:
+        return
+        
+    user = update.effective_user
+    if not user:
+        return
+        
+    user_id = user.id
     
     if not is_sudo(user_id):
         await update.message.reply_text("❌ You don't have permission to use this command.", parse_mode="Markdown")
@@ -1512,10 +1702,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    user_id = update.effective_user.id
+    user = update.effective_user
+    if not user:
+        return
+        
+    user_id = user.id
     
     if query.data == "check_membership":
-        if is_user_member(context, user_id):
+        if await is_user_member(context, user_id):
             await query.edit_message_text(
                 "✅ *Verification Successful*\n\n"
                 "You can now use the bot. Click /start to continue.",
@@ -1747,6 +1941,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
     elif query.data == "back_to_menu":
         user = update.effective_user
+        if not user:
+            return
+            
         user_id = user.id
         
         # Get user credits
@@ -1987,7 +2184,15 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Message handlers
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    # Skip for channel posts
+    if update.channel_post:
+        return
+        
+    user = update.effective_user
+    if not user:
+        return
+        
+    user_id = user.id
     message_text = update.message.text
     
     # Check if user is banned
@@ -2002,7 +2207,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # Check if user is member of required channels
-    if not is_user_member(context, user_id):
+    if not await is_user_member(context, user_id):
         await check_membership(update, context)
         return
     
@@ -2035,11 +2240,12 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Handle as UPI ID
         context.args = [message_text]
         await upi_handler(update, context)
-    # Check if it's an IP address.         
+    # Check if it's an IP address
     elif "." in message_text and all(part.isdigit() for part in message_text.split(".")):
         # Handle as IP address
         context.args = [message_text]
         await ip_handler(update, context)
+    else:
         # Unknown message type
         await update.message.reply_text(
             "❌ I don't understand this message.\n\n"
@@ -2049,7 +2255,11 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def group_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
-    user_id = update.effective_user.id
+    user = update.effective_user
+    if not user:
+        return
+        
+    user_id = user.id
     
     # Check if user is banned
     conn = sqlite3.connect('datatrace.db')
